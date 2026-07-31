@@ -1,0 +1,53 @@
+{
+  "scenarioId": "poc-0-default",
+  "records": [
+    {
+      "engineVersion": "0.1.0",
+      "change": "before subcell bilinear line burning",
+      "runtimes": [
+        {
+          "node": "v18.19.1",
+          "v8": "10.2.154.26-node.28",
+          "stateHashes": {
+            "straight": "4c43374e",
+            "distributed": "295918a7",
+            "detour": "3252ed31"
+          }
+        },
+        {
+          "node": "v20.20.2",
+          "v8": "11.3.244.8-node.38",
+          "stateHashes": {
+            "straight": "4c43374e",
+            "distributed": "295918a7",
+            "detour": "3252ed31"
+          }
+        }
+      ]
+    },
+    {
+      "engineVersion": "0.2.0",
+      "change": "bilinear subcell distribution with fixed w00 remainder and clipped, non-renormalized boundaries",
+      "runtimes": [
+        {
+          "node": "v18.19.1",
+          "v8": "10.2.154.26-node.28",
+          "stateHashes": {
+            "straight": "1cc26670",
+            "distributed": "3e5f93c3",
+            "detour": "98700081"
+          }
+        },
+        {
+          "node": "v20.20.2",
+          "v8": "11.3.244.8-node.38",
+          "stateHashes": {
+            "straight": "1cc26670",
+            "distributed": "3e5f93c3",
+            "detour": "98700081"
+          }
+        }
+      ]
+    }
+  ]
+}
