@@ -1,5 +1,5 @@
 import { Q } from "./config.js";
-import { clampInt32 } from "./fixed-point.js";
+import { clampVector } from "./fixed-point.js";
 
 function assertPoint(point, width, height) {
   if (!Array.isArray(point) || point.length !== 2) {
@@ -123,8 +123,13 @@ export function burnLines(lines, config) {
     }
 
     for (let index = 0; index < cellCount; index += 1) {
-      guideX[index] = clampInt32(guideX[index] + lineX[index], -config.guideLimit, config.guideLimit);
-      guideY[index] = clampInt32(guideY[index] + lineY[index], -config.guideLimit, config.guideLimit);
+      const clamped = clampVector(
+        guideX[index] + lineX[index],
+        guideY[index] + lineY[index],
+        config.guideLimit,
+      );
+      guideX[index] = clamped[0];
+      guideY[index] = clamped[1];
     }
   }
 

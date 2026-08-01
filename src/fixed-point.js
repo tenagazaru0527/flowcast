@@ -26,6 +26,36 @@ export function clampInt32(value, minimum, maximum) {
   return value | 0;
 }
 
+export function isqrt(n) {
+  if (!Number.isInteger(n) || n < 0) {
+    throw new RangeError("isqrt requires a non-negative integer");
+  }
+  if (n < 2) return n;
+  let bit = 1;
+  while (bit * 4 <= n) bit *= 4;
+  let rest = n;
+  let result = 0;
+  while (bit >= 1) {
+    if (rest >= result + bit) {
+      rest -= result + bit;
+      result = result / 2 + bit;
+    } else {
+      result /= 2;
+    }
+    bit /= 4;
+  }
+  return result;
+}
+
+export function clampVector(x, y, limit) {
+  // Call sites remain below 2^36 here; no bitwise coercion may occur before division.
+  const magnitudeSquared = x * x + y * y;
+  const limitSquared = limit * limit;
+  if (magnitudeSquared <= limitSquared) return [x, y];
+  const magnitude = isqrt(magnitudeSquared);
+  return [((x * limit) / magnitude) | 0, ((y * limit) / magnitude) | 0];
+}
+
 export class XorShift32 {
   constructor(seed) {
     if (!Number.isInteger(seed)) {

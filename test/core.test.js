@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { Q, createConfig } from "../src/config.js";
-import { divQ, fnv1aInt32, mulQ, XorShift32 } from "../src/fixed-point.js";
+import { clampVector, divQ, fnv1aInt32, isqrt, mulQ, XorShift32 } from "../src/fixed-point.js";
 import { burnLines } from "../src/lines.js";
 import {
   createReplay,
@@ -31,6 +31,23 @@ test("xorshift32 is repeatable and has a single 32-bit state", () => {
 test("FNV-1a hashes Int32 values in explicit little-endian byte order", () => {
   assert.equal(fnv1aInt32(new Int32Array([0])), 0x4b95f515);
   assert.equal(fnv1aInt32(new Int32Array([0x01020304])), 0x9b35d555);
+});
+
+test("isqrt returns the exact floor square root without 32-bit coercion", () => {
+  assert.deepEqual([0, 1, 2, 3, 4].map(isqrt), [0, 1, 1, 1, 2]);
+  const fixedRoots = [2, 3, 10, Q, 92_681];
+  for (let index = 0; index < fixedRoots.length; index += 1) {
+    const root = fixedRoots[index];
+    assert.equal(isqrt(root * root), root);
+    assert.equal(isqrt(root * root - 1), root - 1);
+  }
+  assert.equal(isqrt(2 * Q * Q), 92_681);
+});
+
+test("clampVector applies one symmetric magnitude limit", () => {
+  assert.deepEqual(clampVector(Q, Q, Q), [46_341, 46_341]);
+  assert.deepEqual(clampVector(-Q, -Q, Q), [-46_341, -46_341]);
+  assert.ok(isqrt(46_341 * 46_341 * 2) <= Q);
 });
 
 test("line burning emits bounded Int32 guide arrays", () => {

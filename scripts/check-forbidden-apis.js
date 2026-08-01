@@ -26,7 +26,7 @@ function walk(dir) {
 function scan(file) {
   const lines = readFileSync(file, "utf8").split("\n");
   lines.forEach((line, i) => {
-    if (/^\s*(\/\/|\*)/.test(line)) return;
+    if (/^\s*(\/\/|\/\*|\*)/.test(line)) return;
     for (const rule of FORBIDDEN) {
       if (rule.re.test(line)) {
         violations.push(`${file.replace(root, "")}:${i + 1}  [${rule.name}]  ${line.trim()}`);

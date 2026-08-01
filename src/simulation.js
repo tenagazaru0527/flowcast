@@ -1,6 +1,6 @@
 import { createConfig, Q } from "./config.js";
 import { burnLines } from "./lines.js";
-import { clampInt32, hashHex, mulQ } from "./fixed-point.js";
+import { clampVector, hashHex, mulQ } from "./fixed-point.js";
 
 const DIRECTION_X = [0, 1, 0, -1];
 const DIRECTION_Y = [-1, 0, 1, 0];
@@ -163,8 +163,13 @@ function proposeFlows(
   for (let index = 0; index < cellCount; index += 1) {
     const amount = density[index];
     if (amount <= 0) continue;
-    const guideX = clampInt32(field.guideX[index] + feedbackX[index], -config.guideLimit, config.guideLimit);
-    const guideY = clampInt32(field.guideY[index] + feedbackY[index], -config.guideLimit, config.guideLimit);
+    const activeGuide = clampVector(
+      field.guideX[index] + feedbackX[index],
+      field.guideY[index] + feedbackY[index],
+      config.guideLimit,
+    );
+    const guideX = activeGuide[0];
+    const guideY = activeGuide[1];
     const scores = [0, 0, 0, 0];
     const localAdvectionScores = advectionScores ? [0, 0, 0, 0] : null;
     const localDiffusionScores = diffusionScores ? [0, 0, 0, 0] : null;
@@ -275,10 +280,18 @@ function writeNextFeedback(density, readX, readY, writeX, writeY, field, config)
     const decayedY = mulQ(readY[index], config.reverseDamping);
     if (density[index] > config.reverseThreshold) {
       backflowEvents += 1;
-      const activeX = clampInt32(field.guideX[index] + readX[index], -config.guideLimit, config.guideLimit);
-      const activeY = clampInt32(field.guideY[index] + readY[index], -config.guideLimit, config.guideLimit);
-      writeX[index] = clampInt32(decayedX - mulQ(activeX, config.reverseStrength), -config.reverseLimit, config.reverseLimit);
-      writeY[index] = clampInt32(decayedY - mulQ(activeY, config.reverseStrength), -config.reverseLimit, config.reverseLimit);
+      const active = clampVector(
+        field.guideX[index] + readX[index],
+        field.guideY[index] + readY[index],
+        config.guideLimit,
+      );
+      const next = clampVector(
+        decayedX - mulQ(active[0], config.reverseStrength),
+        decayedY - mulQ(active[1], config.reverseStrength),
+        config.reverseLimit,
+      );
+      writeX[index] = next[0];
+      writeY[index] = next[1];
     } else {
       writeX[index] = decayedX;
       writeY[index] = decayedY;
