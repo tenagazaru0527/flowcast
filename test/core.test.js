@@ -4,7 +4,15 @@ import test from "node:test";
 import { Q, createConfig } from "../src/config.js";
 import { divQ, fnv1aInt32, mulQ, XorShift32 } from "../src/fixed-point.js";
 import { burnLines } from "../src/lines.js";
-import { createReplay, INPUTS, replayInput } from "../src/scenarios.js";
+import {
+  createReplay,
+  DEFAULT_SEED,
+  INPUTS,
+  replayInput,
+  SINK,
+  SOURCE,
+} from "../src/scenarios.js";
+import { runSimulation } from "../src/simulation.js";
 
 test("Q16.16 multiplication and division truncate toward zero", () => {
   assert.equal(mulQ(3 * Q, Q >> 1), Q + (Q >> 1));
@@ -41,4 +49,17 @@ test("replay data contains only the five portable input fields", () => {
   assert.deepEqual(Object.keys(replay).sort(), ["engineVersion", "formatVersion", "lines", "scenarioId", "seed"]);
   const input = replayInput(replay);
   assert.deepEqual(input.lines, INPUTS.straight);
+});
+
+test("measurement instrumentation does not affect simulation results", () => {
+  const input = {
+    lines: INPUTS.straight,
+    source: SOURCE,
+    sink: SINK,
+    seed: DEFAULT_SEED,
+  };
+  const unmeasured = runSimulation(input);
+  const measured = runSimulation({ ...input, measure: true });
+  assert.equal(measured.stateHash, unmeasured.stateHash);
+  assert.equal(measured.totalCompleted, unmeasured.totalCompleted);
 });

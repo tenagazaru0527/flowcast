@@ -312,6 +312,7 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
   let maxStagnation = 0;
   let totalInjected = 0;
   let densityMax = 0;
+  let densityMaxExSource = 0;
   let occupiedCellsPeak = 0;
   let backflowEvents = 0;
   const totalResidency = new Uint32Array(2);
@@ -329,7 +330,13 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
     let stepStagnation = config.injectionPerStep - injected;
     if (measure) {
       for (let index = 0; index < cellCount; index += 1) {
-        if (densityRead[index] > densityMax) densityMax = densityRead[index];
+        const amount = densityRead[index];
+        if (amount > densityMax) densityMax = amount;
+        const x = index % config.width;
+        const y = (index / config.width) | 0;
+        // Exclude the source and its in-bounds Manhattan-distance-1 neighbors.
+        const sourceDistance = Math.abs(x - source[0]) + Math.abs(y - source[1]);
+        if (sourceDistance > 1 && amount > densityMaxExSource) densityMaxExSource = amount;
       }
     }
 
@@ -423,6 +430,7 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
     const advectionShare = percentageUnsigned64(advectionMoved, totalMoved);
     result.measurements = {
       densityMax,
+      densityMaxExSource,
       densityMaxRatio: ((densityMax * 100) / config.capacity) | 0,
       occupiedCellsPeak,
       meanResidency: totalCompleted > 0 ? divideUnsigned64ByInt32(totalResidency, totalCompleted) : -1,
@@ -430,6 +438,7 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
       completionStep,
       maxStagnation,
       totalCompleted,
+      totalInjected,
       completionRatio: totalInjected > 0 ? ((totalCompleted * 100) / totalInjected) | 0 : 0,
       outOfFieldRatio: totalInjected > 0 ? ((outOfField * 100) / totalInjected) | 0 : 0,
       remainingRatio: totalInjected > 0 ? ((remainingAmount * 100) / totalInjected) | 0 : 0,

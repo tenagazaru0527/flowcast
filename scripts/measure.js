@@ -18,15 +18,19 @@ const sweepPoints = [
   { ratio: "64:1", advectionWeight: Q, diffusionWeight: Q >> 6 },
 ];
 
-function measure(name, config = {}) {
+function measureLines(lines, config = {}) {
   return runSimulation({
-    lines: INPUTS[name],
+    lines,
     source: SOURCE,
     sink: SINK,
     seed: DEFAULT_SEED,
     config,
     measure: true,
   });
+}
+
+function measure(name, config = {}) {
+  return measureLines(INPUTS[name], config);
 }
 
 function printDefaultMeasurements() {
@@ -36,7 +40,8 @@ function printDefaultMeasurements() {
     const values = result.measurements;
     const completion = values.completionStep === -1 ? "-1 (未到達)" : String(values.completionStep);
     console.log(name);
-    console.log(`  densityMax: ${values.densityMax}`);
+    console.log(`  densityMax(source平衡値): ${values.densityMax}`);
+    console.log(`  densityMaxExSource: ${values.densityMaxExSource}`);
     console.log(`  densityMaxRatio: ${values.densityMaxRatio}%`);
     console.log(`  occupiedCellsPeak: ${values.occupiedCellsPeak}`);
     console.log(`  meanResidency: ${values.meanResidency}`);
@@ -44,6 +49,7 @@ function printDefaultMeasurements() {
     console.log(`  completionStep: ${completion}`);
     console.log(`  maxStagnation: ${values.maxStagnation}`);
     console.log(`  totalCompleted: ${values.totalCompleted}`);
+    console.log(`  totalInjected: ${values.totalInjected}`);
     console.log(`  completionRatio: ${values.completionRatio}%`);
     console.log(`  outOfFieldRatio: ${values.outOfFieldRatio}%`);
     console.log(`  remainingRatio: ${values.remainingRatio}%`);
@@ -59,6 +65,7 @@ function printSweep() {
     "ratio",
     "input",
     "densityMax",
+    "densityMaxExSource",
     "densityMaxRatio",
     "occupiedCellsPeak",
     "meanResidency",
@@ -66,6 +73,7 @@ function printSweep() {
     "completionStep",
     "maxStagnation",
     "totalCompleted",
+    "totalInjected",
     "completionRatio",
     "outOfFieldRatio",
     "remainingRatio",
@@ -88,6 +96,7 @@ function printSweep() {
         point.ratio,
         name,
         values.densityMax,
+        values.densityMaxExSource,
         values.densityMaxRatio,
         values.occupiedCellsPeak,
         values.meanResidency,
@@ -95,6 +104,7 @@ function printSweep() {
         values.completionStep,
         values.maxStagnation,
         values.totalCompleted,
+        values.totalInjected,
         values.completionRatio,
         values.outOfFieldRatio,
         values.remainingRatio,
@@ -107,17 +117,30 @@ function printSweep() {
   }
 }
 
-function variationBasisPoints(baseline, candidate) {
-  if (baseline === -1 || candidate === -1) return null;
-  const rawDifference = candidate >= baseline ? candidate - baseline : baseline - candidate;
-  return ((rawDifference * 10_000) / baseline) | 0;
+function completionRatioVariationBasisPoints(baseline, candidate) {
+  const baselineValues = baseline.measurements;
+  const candidateValues = candidate.measurements;
+  if (
+    baselineValues.totalCompleted <= 0
+    || baselineValues.totalInjected <= 0
+    || candidateValues.totalInjected <= 0
+  ) {
+    return null;
+  }
+  const candidateScaled = BigInt(candidateValues.totalCompleted) * BigInt(baselineValues.totalInjected);
+  const baselineScaled = BigInt(baselineValues.totalCompleted) * BigInt(candidateValues.totalInjected);
+  const difference = candidateScaled >= baselineScaled
+    ? candidateScaled - baselineScaled
+    : baselineScaled - candidateScaled;
+  const denominator = BigInt(candidateValues.totalInjected) * BigInt(baselineValues.totalCompleted);
+  return Number((difference * 10_000n) / denominator);
 }
 
 function summarizeSensitivity(baseline, results) {
   const rates = [];
   let indeterminate = 0;
   for (let index = 0; index < results.length; index += 1) {
-    const rate = variationBasisPoints(baseline, results[index].completionStep);
+    const rate = completionRatioVariationBasisPoints(baseline, results[index]);
     if (rate === null) indeterminate += 1;
     else rates.push(rate);
   }
@@ -149,13 +172,12 @@ function printSensitivity() {
   const summaries = [];
   console.log("baseline\tdistributed");
   console.log(`baselineCompletionStep\t${baseline.completionStep}`);
+  console.log(`baselineCompletionRatioRaw\t${baseline.measurements.totalCompleted}/${baseline.measurements.totalInjected}`);
   console.log("level\tassessable\tindeterminate\tmedian\tmaximum");
   for (let index = 0; index < levels.length; index += 1) {
     const level = levels[index];
-    const results = createPerturbationsAtPercent(INPUTS.distributed, level).map((lines) => (
-      runSimulation({ lines, source: SOURCE, sink: SINK, seed: DEFAULT_SEED })
-    ));
-    const summary = summarizeSensitivity(baseline.completionStep, results);
+    const results = createPerturbationsAtPercent(INPUTS.distributed, level).map((lines) => measureLines(lines));
+    const summary = summarizeSensitivity(baseline, results);
     summaries.push(summary);
     const levelAssessable = summary.indeterminate === 0;
     const median = !levelAssessable || summary.medianTwiceBasisPoints === null
