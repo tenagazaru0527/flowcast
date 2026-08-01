@@ -8,6 +8,8 @@
   },
   "scripts": {
     "test": "node --test",
-    "test:browsers": "node scripts/check-browser-hashes.js"
+    "test:browsers": "node scripts/check-browser-hashes.js",
+    "verify": "node scripts/check-forbidden-apis.js && node scripts/check-runtime-hashes.js && node --test test/core.test.js",
+    "report": "node test/acceptance.test.js"
   }
 }
