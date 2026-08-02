@@ -16,6 +16,9 @@ export const DEFAULT_CONFIG = Object.freeze({
   steps: 3_600,
   completionTarget: 32 * Q,
   transferRate: Q >> 2,
+  // With the default capacity and transfer rate, one cell's total transfer
+  // budget is at most mulQ(4 * Q, Q >> 2) = Q, so this is effectively unlimited.
+  edgeFluxMax: Q,
   advectionWeight: ADVECTION_WEIGHT,
   diffusionWeight: DIFFUSION_WEIGHT,
   reverseThreshold: 3 * Q,
@@ -36,6 +39,7 @@ export function createConfig(overrides = {}) {
     "steps",
     "completionTarget",
     "transferRate",
+    "edgeFluxMax",
     "advectionWeight",
     "diffusionWeight",
     "reverseThreshold",

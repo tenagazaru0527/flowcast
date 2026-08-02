@@ -72,6 +72,30 @@
           }
         }
       ]
+    },
+    {
+      "engineVersion": "0.4.0",
+      "change": "per-edge flux limit with an effectively unlimited default and measurement-only diagnostics",
+      "runtimes": [
+        {
+          "node": "v20.20.2",
+          "v8": "11.3.244.8-node.38",
+          "stateHashes": {
+            "straight": "be8c863e",
+            "distributed": "f2a3abcc",
+            "detour": "cefc377f"
+          }
+        },
+        {
+          "node": "v22.22.2",
+          "v8": "12.4.254.21-node.39",
+          "stateHashes": {
+            "straight": "be8c863e",
+            "distributed": "f2a3abcc",
+            "detour": "cefc377f"
+          }
+        }
+      ]
     }
   ]
 }

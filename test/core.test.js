@@ -61,6 +61,11 @@ test("line burning emits bounded Int32 guide arrays", () => {
   }
 });
 
+test("default edge flux limit is at least the current theoretical transfer budget", () => {
+  const config = createConfig();
+  assert.ok(config.edgeFluxMax >= mulQ(config.capacity, config.transferRate));
+});
+
 test("replay data contains only the five portable input fields", () => {
   const replay = createReplay();
   assert.deepEqual(Object.keys(replay).sort(), ["engineVersion", "formatVersion", "lines", "scenarioId", "seed"]);
@@ -79,4 +84,25 @@ test("measurement instrumentation does not affect simulation results", () => {
   const measured = runSimulation({ ...input, measure: true });
   assert.equal(measured.stateHash, unmeasured.stateHash);
   assert.equal(measured.totalCompleted, unmeasured.totalCompleted);
+  assert.equal(measured.measurements.fluxLimitedAmount, 0);
+  assert.equal(measured.measurements.fluxLimitedEvents, 0);
+  assert.equal(measured.measurements.capacityLimitedAmount, 0);
+});
+
+test("edge flux diagnostics count only measurement-side suppression", () => {
+  const input = {
+    lines: INPUTS.straight,
+    source: SOURCE,
+    sink: SINK,
+    seed: DEFAULT_SEED,
+    config: { steps: 16, edgeFluxMax: 1 },
+  };
+  const unmeasured = runSimulation(input);
+  const measured = runSimulation({ ...input, measure: true });
+
+  assert.equal(measured.stateHash, unmeasured.stateHash);
+  assert.equal(measured.totalCompleted, unmeasured.totalCompleted);
+  assert.ok(measured.measurements.fluxLimitedAmount > 0);
+  assert.ok(measured.measurements.fluxLimitedEvents > 0);
+  assert.equal(measured.measurements.capacityLimitedAmount, 0);
 });

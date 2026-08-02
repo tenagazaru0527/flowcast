@@ -20,6 +20,16 @@ function addUnsigned64(accumulator, value) {
   if (nextLow < previousLow) accumulator[1] = (accumulator[1] + 1) >>> 0;
 }
 
+// Measurement counters stay as two 32-bit words while accumulating. Conversion
+// remains exact up to 2^53 - 1 and rejects larger diagnostic results.
+function unsigned64ToSafeInteger(accumulator, label) {
+  const result = accumulator[1] * 4_294_967_296 + accumulator[0];
+  if (!Number.isSafeInteger(result)) {
+    throw new RangeError(label + " exceeded the safe integer range");
+  }
+  return result;
+}
+
 function addUnsigned64Words(accumulator, value) {
   const previousLow = accumulator[0];
   accumulator[0] = (accumulator[0] + value[0]) >>> 0;
@@ -153,6 +163,8 @@ function proposeFlows(
   incomingRequested,
   advectionScores,
   diffusionScores,
+  fluxLimitedAmount,
+  fluxLimitedEvents,
 ) {
   flows.fill(0);
   incomingRequested.fill(0);
@@ -197,13 +209,23 @@ function proposeFlows(
       if (score === 0) continue;
       // budget <= capacity and scoreTotal is bounded by 8*Q; product < 2^40.
       const proposed = ((budget * score) / scoreTotal) | 0;
-      if (proposed <= 0) continue;
+      let accepted = proposed;
+      // The edge limit applies after score allocation and before the existing
+      // destination-capacity limit. Suppressed density therefore stays at origin.
+      if (accepted > config.edgeFluxMax) {
+        accepted = config.edgeFluxMax;
+        if (fluxLimitedAmount) {
+          addUnsigned64(fluxLimitedAmount, proposed - accepted);
+          addUnsigned64(fluxLimitedEvents, 1);
+        }
+      }
+      if (accepted <= 0) continue;
       const destination = neighborIndex(index, direction, config.width, config.height);
       const flowIndex = index * 4 + direction;
-      flows[flowIndex] = proposed;
+      flows[flowIndex] = accepted;
       if (advectionScores) advectionScores[flowIndex] = localAdvectionScores[direction];
       if (diffusionScores) diffusionScores[flowIndex] = localDiffusionScores[direction];
-      incomingRequested[destination] = checkedAdd(incomingRequested[destination], proposed, "incoming request");
+      incomingRequested[destination] = checkedAdd(incomingRequested[destination], accepted, "incoming request");
     }
   }
 }
@@ -325,13 +347,25 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
   let maxStagnation = 0;
   let totalInjected = 0;
   let densityMax = 0;
+  let densityMaxCell = null;
+  let densityMaxStep = -1;
+  let densityMaxSourceDistance = -1;
   let densityMaxExSource = 0;
+  let densityMaxExSourceCell = null;
+  let densityMaxExSourceStep = -1;
+  let densityMaxExSourceSourceDistance = -1;
   let occupiedCellsPeak = 0;
   let backflowEvents = 0;
   const totalResidency = new Uint32Array(2);
   const advectionMoved = new Uint32Array(2);
   const diffusionMoved = new Uint32Array(2);
   const totalMoved = new Uint32Array(2);
+  const fluxLimitedAmount = measure ? new Uint32Array(2) : null;
+  const fluxLimitedEvents = measure ? new Uint32Array(2) : null;
+  const capacityLimitedAmount = measure ? new Uint32Array(2) : null;
+  const sourceOutflow = measure ? new Uint32Array(2) : null;
+  let sourcePositiveScoreDirections = 0;
+  let sourcePositiveScoreDirectionsStep = -1;
   const maximumGuideMagnitude = measure ? guideMagnitudeMax(field) : 0;
   const outOfField = 0;
 
@@ -344,12 +378,23 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
     if (measure) {
       for (let index = 0; index < cellCount; index += 1) {
         const amount = densityRead[index];
-        if (amount > densityMax) densityMax = amount;
         const x = index % config.width;
         const y = (index / config.width) | 0;
-        // Exclude the source and its in-bounds Manhattan-distance-1 neighbors.
         const sourceDistance = Math.abs(x - source[0]) + Math.abs(y - source[1]);
-        if (sourceDistance > 1 && amount > densityMaxExSource) densityMaxExSource = amount;
+        // Strict comparison keeps the first maximum in step/index iteration order.
+        if (amount > densityMax) {
+          densityMax = amount;
+          densityMaxCell = [x, y];
+          densityMaxStep = step;
+          densityMaxSourceDistance = sourceDistance;
+        }
+        // Exclude the source and its in-bounds Manhattan-distance-1 neighbors.
+        if (sourceDistance > 1 && amount > densityMaxExSource) {
+          densityMaxExSource = amount;
+          densityMaxExSourceCell = [x, y];
+          densityMaxExSourceStep = step;
+          densityMaxExSourceSourceDistance = sourceDistance;
+        }
       }
     }
 
@@ -363,10 +408,25 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
       incomingRequested,
       advectionScores,
       diffusionScores,
+      fluxLimitedAmount,
+      fluxLimitedEvents,
     );
+    const capacityLimitedThisStep = applyCapacity(densityRead, capacity, config, flows, incomingRequested);
+    if (measure) {
+      addUnsigned64(capacityLimitedAmount, capacityLimitedThisStep);
+      let positiveDirections = 0;
+      for (let direction = 0; direction < 4; direction += 1) {
+        const flowIndex = sourceIndex * 4 + direction;
+        addUnsigned64(sourceOutflow, flows[flowIndex]);
+        if (advectionScores[flowIndex] > 0 || diffusionScores[flowIndex] > 0) positiveDirections += 1;
+      }
+      // The final simulated step is the representative step reported below.
+      sourcePositiveScoreDirections = positiveDirections;
+      sourcePositiveScoreDirectionsStep = step;
+    }
     stepStagnation = checkedAdd(
       stepStagnation,
-      applyCapacity(densityRead, capacity, config, flows, incomingRequested),
+      capacityLimitedThisStep,
       "step stagnation",
     );
     writeNextDensity(
@@ -441,15 +501,31 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
       throw new Error(`quantity conservation failed: injected=${totalInjected}, accounted=${accountedAmount}`);
     }
     const advectionShare = percentageUnsigned64(advectionMoved, totalMoved);
+    const sourceOutflowTotal = unsigned64ToSafeInteger(sourceOutflow, "sourceOutflow");
     result.measurements = {
       densityMax,
+      densityMaxCell,
+      densityMaxStep,
       densityMaxExSource,
+      densityMaxExSourceCell,
+      densityMaxExSourceStep,
+      sourceDistance: {
+        densityMax: densityMaxSourceDistance,
+        densityMaxExSource: densityMaxExSourceSourceDistance,
+      },
       densityMaxRatio: ((densityMax * 100) / config.capacity) | 0,
       occupiedCellsPeak,
       meanResidency: totalCompleted > 0 ? divideUnsigned64ByInt32(totalResidency, totalCompleted) : -1,
       backflowEvents,
       completionStep,
       maxStagnation,
+      fluxLimitedAmount: unsigned64ToSafeInteger(fluxLimitedAmount, "fluxLimitedAmount"),
+      fluxLimitedEvents: unsigned64ToSafeInteger(fluxLimitedEvents, "fluxLimitedEvents"),
+      capacityLimitedAmount: unsigned64ToSafeInteger(capacityLimitedAmount, "capacityLimitedAmount"),
+      sourceDensityFinal: densityRead[sourceIndex],
+      sourceOutflowAverage: sourceOutflowTotal / config.steps,
+      sourcePositiveScoreDirections,
+      sourcePositiveScoreDirectionsStep,
       totalCompleted,
       totalInjected,
       completionRatio: totalInjected > 0 ? ((totalCompleted * 100) / totalInjected) | 0 : 0,
