@@ -1,9 +1,10 @@
 import { createConfig, Q } from "./config.js";
 import { burnLines } from "./lines.js";
-import { clampVector, hashHex, mulQ } from "./fixed-point.js";
+import { clampVector, hashHex, isqrt, mulQ } from "./fixed-point.js";
 
 const DIRECTION_X = [0, 1, 0, -1];
 const DIRECTION_Y = [-1, 0, 1, 0];
+const COHERENCE_SIGMA_THRESHOLD = 2 * Q;
 
 function checkedAdd(left, right, label) {
   const result = left + right;
@@ -98,6 +99,38 @@ function guideMagnitudeMax(field) {
     if (magnitude > maximum) maximum = magnitude;
   }
   return maximum;
+}
+
+function measureSigmaProfile(density, config) {
+  const profile = new Array(config.width).fill(null);
+  for (let x = 0; x < config.width; x += 1) {
+    let total = 0;
+    let weightedY = 0;
+    let weightedYSquared = 0;
+    for (let y = 0; y < config.height; y += 1) {
+      const amount = density[y * config.width + x];
+      total += amount;
+      weightedY += y * amount;
+      weightedYSquared += y * y * amount;
+    }
+    if (total === 0) continue;
+
+    // Moments are accumulated with integer coordinates. Products stay below
+    // 2^53 for the configured 64x64 field and total-injection bound.
+    const centroid = ((weightedY * Q) / total) | 0;
+    const secondMoment = ((weightedYSquared * Q) / total) | 0;
+    const variance = secondMoment - mulQ(centroid, centroid);
+    profile[x] = isqrt((variance > 0 ? variance : 0) * Q);
+  }
+  return profile;
+}
+
+function measureCoherenceLength(profile, sourceX) {
+  for (let x = sourceX; x < profile.length; x += 1) {
+    const sigma = profile[x];
+    if (sigma !== null && sigma > COHERENCE_SIGMA_THRESHOLD) return x;
+  }
+  return profile.length - 1;
 }
 
 function cellIndex(point, config, label) {
@@ -519,6 +552,7 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
     }
     const advectionShare = percentageUnsigned64(advectionMoved, totalMoved);
     const sourceOutflowTotal = unsigned64ToSafeInteger(sourceOutflow, "sourceOutflow");
+    const sigmaProfile = measureSigmaProfile(densityRead, config);
     result.measurements = {
       densityMax,
       densityMaxCell,
@@ -543,6 +577,8 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
       sourceOutflowAverage: sourceOutflowTotal / config.steps,
       sourcePositiveScoreDirections,
       sourcePositiveScoreDirectionsStep,
+      sigmaProfile,
+      coherenceLength: measureCoherenceLength(sigmaProfile, source[0]),
       totalCompleted,
       totalInjected,
       outOfField,
