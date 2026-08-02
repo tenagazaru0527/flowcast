@@ -2,7 +2,7 @@ import { Q } from "./config.js";
 
 const point = (x, y) => [x * Q, y * Q];
 
-export const ENGINE_VERSION = "0.4.0";
+export const ENGINE_VERSION = "0.5.0";
 export const SCENARIO_ID = "poc-0-default";
 export const DEFAULT_SEED = 0x13579bdf;
 export const SOURCE = Object.freeze([4, 32]);

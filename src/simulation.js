@@ -189,11 +189,14 @@ function proposeFlows(
 
     for (let direction = 0; direction < 4; direction += 1) {
       const destination = neighborIndex(index, direction, config.width, config.height);
-      if (destination < 0) continue;
       const guideComponent = directionalComponent(guideX, guideY, direction);
-      const densityDifference = amount - density[destination];
-      const gradientComponent = densityDifference > 0 ? densityDifference : 0;
       const advectionScore = mulQ(guideComponent, config.advectionWeight);
+      // The absorbing exterior has fixed zero density. This creates an outward
+      // diffusion gradient even where no guide reaches the boundary, removing
+      // the reflecting-wall behavior by an explicit deterministic rule.
+      const destinationDensity = destination < 0 ? 0 : density[destination];
+      const densityDifference = amount - destinationDensity;
+      const gradientComponent = densityDifference > 0 ? densityDifference : 0;
       const diffusionScore = mulQ(gradientComponent, config.diffusionWeight);
       const score = checkedAdd(advectionScore, diffusionScore, "direction score");
       scores[direction] = score;
@@ -225,13 +228,16 @@ function proposeFlows(
       flows[flowIndex] = accepted;
       if (advectionScores) advectionScores[flowIndex] = localAdvectionScores[direction];
       if (diffusionScores) diffusionScores[flowIndex] = localDiffusionScores[direction];
-      incomingRequested[destination] = checkedAdd(incomingRequested[destination], accepted, "incoming request");
+      if (destination >= 0) {
+        incomingRequested[destination] = checkedAdd(incomingRequested[destination], accepted, "incoming request");
+      }
     }
   }
 }
 
 function applyCapacity(density, capacity, config, flows, incomingRequested) {
   let stagnation = 0;
+  let outOfField = 0;
   const cellCount = density.length;
   for (let origin = 0; origin < cellCount; origin += 1) {
     for (let direction = 0; direction < 4; direction += 1) {
@@ -239,6 +245,10 @@ function applyCapacity(density, capacity, config, flows, incomingRequested) {
       const proposed = flows[flowIndex];
       if (proposed === 0) continue;
       const destination = neighborIndex(origin, direction, config.width, config.height);
+      if (destination < 0) {
+        outOfField = checkedAdd(outOfField, proposed, "step outOfField");
+        continue;
+      }
       const remaining = capacity[destination] - density[destination];
       const requested = incomingRequested[destination];
       if (remaining >= requested) continue;
@@ -247,7 +257,7 @@ function applyCapacity(density, capacity, config, flows, incomingRequested) {
       stagnation = checkedAdd(stagnation, proposed - accepted, "step stagnation");
     }
   }
-  return stagnation;
+  return [stagnation, outOfField];
 }
 
 function writeNextDensity(
@@ -367,7 +377,7 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
   let sourcePositiveScoreDirections = 0;
   let sourcePositiveScoreDirectionsStep = -1;
   const maximumGuideMagnitude = measure ? guideMagnitudeMax(field) : 0;
-  const outOfField = 0;
+  let outOfField = 0;
 
   for (let step = 1; step <= config.steps; step += 1) {
     const remainingAtSource = capacity[sourceIndex] - densityRead[sourceIndex];
@@ -411,7 +421,14 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
       fluxLimitedAmount,
       fluxLimitedEvents,
     );
-    const capacityLimitedThisStep = applyCapacity(densityRead, capacity, config, flows, incomingRequested);
+    const [capacityLimitedThisStep, outOfFieldThisStep] = applyCapacity(
+      densityRead,
+      capacity,
+      config,
+      flows,
+      incomingRequested,
+    );
+    outOfField = checkedAdd(outOfField, outOfFieldThisStep, "outOfField");
     if (measure) {
       addUnsigned64(capacityLimitedAmount, capacityLimitedThisStep);
       let positiveDirections = 0;
@@ -528,6 +545,7 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
       sourcePositiveScoreDirectionsStep,
       totalCompleted,
       totalInjected,
+      outOfField,
       completionRatio: totalInjected > 0 ? ((totalCompleted * 100) / totalInjected) | 0 : 0,
       outOfFieldRatio: totalInjected > 0 ? ((outOfField * 100) / totalInjected) | 0 : 0,
       remainingRatio: totalInjected > 0 ? ((remainingAmount * 100) / totalInjected) | 0 : 0,

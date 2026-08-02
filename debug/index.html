@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>flowcast density debug viewer</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        background: #080c14;
+        color: #dbe7ff;
+      }
+      body { margin: 0; padding: 16px; }
+      h1 { margin: 0 0 12px; font-size: 18px; }
+      .layout { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+      canvas { width: 640px; height: 640px; border: 1px solid #52617a; image-rendering: pixelated; }
+      .panel { width: min(420px, 100%); display: grid; gap: 12px; }
+      fieldset { border: 1px solid #52617a; display: grid; gap: 8px; }
+      label { display: grid; grid-template-columns: 150px 1fr; gap: 8px; align-items: center; }
+      input, select, button { font: inherit; color: inherit; background: #111a29; border: 1px solid #52617a; padding: 6px; }
+      input[type="range"] { padding: 0; width: 100%; }
+      .step-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; }
+      dt { color: #91a7c8; }
+      dd { margin: 0; }
+      .legend { height: 16px; background: linear-gradient(90deg, hsl(240 90% 15%), hsl(180 90% 37%), hsl(60 90% 48%), hsl(0 90% 60%)); }
+      .markers { display: flex; gap: 16px; font-size: 12px; }
+      .marker::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 5px; border: 2px solid currentColor; vertical-align: -2px; }
+      .source { color: #ff4fd8; }
+      .sink { color: #62ff7a; }
+      #status[data-error="true"] { color: #ff7b7b; }
+    </style>
+  </head>
+  <body>
+    <h1>flowcast density debug viewer — log scale</h1>
+    <div class="layout">
+      <canvas id="density" width="640" height="640" aria-label="64×64 density heatmap"></canvas>
+      <div class="panel">
+        <fieldset>
+          <legend>simulation</legend>
+          <label>入力
+            <select id="input-name">
+              <option value="straight">直進</option>
+              <option value="distributed">分散</option>
+              <option value="detour">迂回</option>
+            </select>
+          </label>
+          <label>edgeFluxMax <input id="edge-flux-max" type="number" min="0" step="1" value="1024"></label>
+          <label>advectionWeight <input id="advection-weight" type="number" min="0" step="1" value="65536"></label>
+          <label>diffusionWeight <input id="diffusion-weight" type="number" min="0" step="1" value="16384"></label>
+          <button id="apply" type="button">入力・パラメータを適用</button>
+        </fieldset>
+        <fieldset>
+          <legend>step</legend>
+          <input id="step-range" type="range" min="0" max="3600" step="50" value="3600">
+          <label>任意step <input id="step-number" type="number" min="0" max="3600" step="1" value="3600"></label>
+          <div class="step-buttons">
+            <button id="previous" type="button">−50</button>
+            <button id="next" type="button">+50</button>
+          </div>
+        </fieldset>
+        <div class="legend" aria-label="density color scale"></div>
+        <div>0 ← log(1 + density) → 現step最大</div>
+        <div class="markers">
+          <span class="marker source">source</span>
+          <span class="marker sink">sink</span>
+        </div>
+        <dl>
+          <dt>step</dt><dd id="metric-step">-</dd>
+          <dt>densityMax</dt><dd id="metric-density-max">-</dd>
+          <dt>completed</dt><dd id="metric-completed">-</dd>
+          <dt>outOfField</dt><dd id="metric-out-of-field">-</dd>
+          <dt>stateHash</dt><dd id="metric-hash">-</dd>
+          <dt>cache</dt><dd id="metric-cache">-</dd>
+        </dl>
+        <div id="status" role="status">待機中</div>
+      </div>
+    </div>
+    <script type="module" src="./viewer.js"></script>
+  </body>
+</html>

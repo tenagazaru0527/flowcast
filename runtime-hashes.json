@@ -96,6 +96,30 @@
           }
         }
       ]
+    },
+    {
+      "engineVersion": "0.5.0",
+      "change": "absorbing field boundary with zero-density exterior diffusion",
+      "runtimes": [
+        {
+          "node": "v20.20.2",
+          "v8": "11.3.244.8-node.38",
+          "stateHashes": {
+            "straight": "4910305d",
+            "distributed": "e63ba5b1",
+            "detour": "9164f600"
+          }
+        },
+        {
+          "node": "v22.22.2",
+          "v8": "12.4.254.21-node.39",
+          "stateHashes": {
+            "straight": "4910305d",
+            "distributed": "e63ba5b1",
+            "detour": "9164f600"
+          }
+        }
+      ]
     }
   ]
 }
