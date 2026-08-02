@@ -89,6 +89,27 @@ test("measurement instrumentation does not affect simulation results", () => {
   assert.equal(measured.measurements.fluxLimitedAmount, 0);
   assert.equal(measured.measurements.fluxLimitedEvents, 0);
   assert.equal(measured.measurements.capacityLimitedAmount, 0);
+  assert.equal(measured.measurements.sigmaProfile.length, 64);
+  assert.ok(measured.measurements.sigmaProfile.every((sigma) => (
+    sigma === null || (Number.isInteger(sigma) && sigma >= 0)
+  )));
+  assert.equal(measured.measurements.sigmaProfile[4], 12_967);
+  assert.equal(measured.measurements.sigmaProfile[20], 185_165);
+  assert.equal(measured.measurements.coherenceLength, 19);
+});
+
+test("empty sigma columns remain undefined", () => {
+  const measured = runSimulation({
+    lines: INPUTS.straight,
+    source: SOURCE,
+    sink: SINK,
+    seed: DEFAULT_SEED,
+    config: { steps: 1 },
+    measure: true,
+  });
+
+  assert.equal(measured.measurements.sigmaProfile[0], null);
+  assert.equal(measured.measurements.coherenceLength, 63);
 });
 
 test("edge flux diagnostics count only measurement-side suppression", () => {
