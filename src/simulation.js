@@ -125,10 +125,39 @@ function measureSigmaProfile(density, config) {
   return profile;
 }
 
-function measureCoherenceLength(profile, sourceX) {
+function measureCoherenceLengthSigma(profile, sourceX) {
   for (let x = sourceX; x < profile.length; x += 1) {
     const sigma = profile[x];
     if (sigma !== null && sigma > COHERENCE_SIGMA_THRESHOLD) return x;
+  }
+  return profile.length - 1;
+}
+
+function measureBandProfile(density, config, threshold) {
+  const bandCells = new Array(config.width).fill(0);
+  const segmentCount = new Array(config.width).fill(0);
+  const meanSegmentWidth = new Array(config.width).fill(null);
+  for (let x = 0; x < config.width; x += 1) {
+    let insideSegment = false;
+    for (let y = 0; y < config.height; y += 1) {
+      const aboveThreshold = density[y * config.width + x] > threshold;
+      if (aboveThreshold) {
+        bandCells[x] += 1;
+        if (!insideSegment) segmentCount[x] += 1;
+      }
+      insideSegment = aboveThreshold;
+    }
+    if (segmentCount[x] > 0) {
+      meanSegmentWidth[x] = ((bandCells[x] * Q) / segmentCount[x]) | 0;
+    }
+  }
+  return { bandCells, segmentCount, meanSegmentWidth };
+}
+
+function measureCoherenceLength(profile, sourceX) {
+  for (let x = sourceX; x < profile.length; x += 1) {
+    const width = profile[x];
+    if (width !== null && width > 2 * Q) return x;
   }
   return profile.length - 1;
 }
@@ -553,6 +582,8 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
     const advectionShare = percentageUnsigned64(advectionMoved, totalMoved);
     const sourceOutflowTotal = unsigned64ToSafeInteger(sourceOutflow, "sourceOutflow");
     const sigmaProfile = measureSigmaProfile(densityRead, config);
+    const bandThreshold = Math.max(1, (densityMaxExSource / 100) | 0);
+    const bandProfile = measureBandProfile(densityRead, config, bandThreshold);
     result.measurements = {
       densityMax,
       densityMaxCell,
@@ -578,7 +609,12 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
       sourcePositiveScoreDirections,
       sourcePositiveScoreDirectionsStep,
       sigmaProfile,
-      coherenceLength: measureCoherenceLength(sigmaProfile, source[0]),
+      bandThreshold,
+      bandCells: bandProfile.bandCells,
+      segmentCount: bandProfile.segmentCount,
+      meanSegmentWidth: bandProfile.meanSegmentWidth,
+      coherenceLength: measureCoherenceLength(bandProfile.meanSegmentWidth, source[0]),
+      coherenceLengthSigma: measureCoherenceLengthSigma(sigmaProfile, source[0]),
       totalCompleted,
       totalInjected,
       outOfField,

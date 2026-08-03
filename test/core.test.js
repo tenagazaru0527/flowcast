@@ -95,7 +95,14 @@ test("measurement instrumentation does not affect simulation results", () => {
   )));
   assert.equal(measured.measurements.sigmaProfile[4], 12_967);
   assert.equal(measured.measurements.sigmaProfile[20], 185_165);
-  assert.equal(measured.measurements.coherenceLength, 19);
+  assert.equal(measured.measurements.coherenceLengthSigma, 19);
+  assert.equal(measured.measurements.bandThreshold, 38);
+  assert.equal(measured.measurements.bandCells.length, 64);
+  assert.equal(measured.measurements.segmentCount.length, 64);
+  assert.equal(measured.measurements.meanSegmentWidth.length, 64);
+  assert.ok(measured.measurements.meanSegmentWidth.every((width) => (
+    width === null || (Number.isInteger(width) && width >= Q)
+  )));
 });
 
 test("empty sigma columns remain undefined", () => {
@@ -110,6 +117,8 @@ test("empty sigma columns remain undefined", () => {
 
   assert.equal(measured.measurements.sigmaProfile[0], null);
   assert.equal(measured.measurements.coherenceLength, 63);
+  assert.equal(measured.measurements.coherenceLengthSigma, 63);
+  assert.equal(measured.measurements.meanSegmentWidth[0], null);
 });
 
 test("edge flux diagnostics count only measurement-side suppression", () => {
