@@ -58,6 +58,15 @@ CI通過後、確認不要でマージできる変更は次のとおり。
 - 未達は未達のまま報告する
 - 掃引は判定を行わない（記録のみ）
 
+### source / sink の多セル規則
+
+- source / sink は座標配列とし、シナリオ定義側で昇順に固定する。実行時にソートしない
+- 総注入量 `injectionPerStep` はsourceセル群全体で維持する
+- `base = (injectionPerStep / cellCount) | 0`
+- `remainder = injectionPerStep - base * cellCount`
+- 配列先頭の `remainder` セルへ `base + 1`、残りへ `base` を割り当てる
+- sinkセル群はいずれも到達分を除去し、完了量は全sinkセルの合計とする
+
 ## 固定報告フォーマット
 
 ```markdown

@@ -11,6 +11,7 @@ import {
   replayInput,
   SINK,
   SOURCE,
+  WIDE_SOURCE,
 } from "../src/scenarios.js";
 import { runSimulation } from "../src/simulation.js";
 
@@ -103,6 +104,39 @@ test("measurement instrumentation does not affect simulation results", () => {
   assert.ok(measured.measurements.meanSegmentWidth.every((width) => (
     width === null || (Number.isInteger(width) && width >= Q)
   )));
+});
+
+test("single-cell source and sink arrays preserve 0.5.0 hashes", () => {
+  const expected = {
+    straight: "4910305d",
+    distributed: "e63ba5b1",
+    detour: "9164f600",
+  };
+  for (const inputName of Object.keys(expected)) {
+    const result = runSimulation({
+      lines: INPUTS[inputName],
+      source: SOURCE,
+      sink: SINK,
+      seed: DEFAULT_SEED,
+    });
+    assert.equal(result.stateHash, expected[inputName], inputName);
+  }
+});
+
+test("source injection is divided in scenario order without changing the total", () => {
+  const measured = runSimulation({
+    lines: INPUTS.straight,
+    source: WIDE_SOURCE,
+    sink: SINK,
+    seed: DEFAULT_SEED,
+    config: { steps: 1 },
+    measure: true,
+  });
+  assert.equal(measured.measurements.sourceCellCount, 9);
+  assert.equal(measured.measurements.sourceExclusionCellCount, 29);
+  assert.equal(measured.measurements.injectionBase, 113);
+  assert.equal(measured.measurements.injectionRemainder, 7);
+  assert.equal(measured.measurements.totalInjected, 1_024);
 });
 
 test("empty sigma columns remain undefined", () => {

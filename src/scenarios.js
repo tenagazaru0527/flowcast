@@ -2,11 +2,28 @@ import { Q } from "./config.js";
 
 const point = (x, y) => [x * Q, y * Q];
 
-export const ENGINE_VERSION = "0.5.0";
+export const ENGINE_VERSION = "0.6.0";
 export const SCENARIO_ID = "poc-0-default";
+export const WIDE_SCENARIO_ID = "poc-1-wide";
 export const DEFAULT_SEED = 0x13579bdf;
-export const SOURCE = Object.freeze([4, 32]);
-export const SINK = Object.freeze([59, 32]);
+
+function freezeCells(cells) {
+  return Object.freeze(cells.map(([x, y]) => Object.freeze([x, y])));
+}
+
+export const SOURCE = freezeCells([[4, 32]]);
+export const SINK = freezeCells([[59, 32]]);
+export const WIDE_SOURCE = freezeCells([
+  [4, 28], [4, 29], [4, 30], [4, 31], [4, 32], [4, 33], [4, 34], [4, 35], [4, 36],
+]);
+
+export function createWideSink(width) {
+  if (!Number.isInteger(width) || width <= 0 || width > 63 || (width & 1) === 0) {
+    throw new RangeError("sink width must be an odd integer from 1 through 63");
+  }
+  const firstY = 32 - ((width / 2) | 0);
+  return freezeCells(Array.from({ length: width }, (_, index) => [59, firstY + index]));
+}
 
 export const INPUTS = Object.freeze({
   straight: Object.freeze([
@@ -25,6 +42,13 @@ export const INPUTS = Object.freeze({
     [point(4, 31), point(24, 27), point(48, 28), point(59, 32)],
   ]),
 });
+
+export const WIDE_INPUTS = INPUTS;
+
+export const SCENARIOS = Object.freeze([
+  Object.freeze({ scenarioId: SCENARIO_ID, source: SOURCE, sink: SINK, inputs: INPUTS }),
+  Object.freeze({ scenarioId: WIDE_SCENARIO_ID, source: WIDE_SOURCE, sink: createWideSink(1), inputs: WIDE_INPUTS }),
+]);
 
 function cloneLines(lines) {
   return lines.map((line) => line.map(([x, y]) => [x, y]));

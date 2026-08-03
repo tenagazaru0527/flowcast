@@ -126,8 +126,8 @@ function draw(result, request, elapsed, cached) {
     context.stroke();
   }
 
-  drawMarker(SOURCE, "#ff4fd8");
-  drawMarker(SINK, "#62ff7a");
+  for (let index = 0; index < SOURCE.length; index += 1) drawMarker(SOURCE[index], "#ff4fd8");
+  for (let index = 0; index < SINK.length; index += 1) drawMarker(SINK[index], "#62ff7a");
 
   document.querySelector("#metric-step").textContent = String(request.step);
   document.querySelector("#metric-density-max").textContent = `${maximum.amount} @ [${maximum.cell.join(", ")}]`;
