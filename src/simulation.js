@@ -125,10 +125,39 @@ function measureSigmaProfile(density, config) {
   return profile;
 }
 
-function measureCoherenceLength(profile, sourceX) {
+function measureCoherenceLengthSigma(profile, sourceX) {
   for (let x = sourceX; x < profile.length; x += 1) {
     const sigma = profile[x];
     if (sigma !== null && sigma > COHERENCE_SIGMA_THRESHOLD) return x;
+  }
+  return profile.length - 1;
+}
+
+function measureBandProfile(density, config, threshold) {
+  const bandCells = new Array(config.width).fill(0);
+  const segmentCount = new Array(config.width).fill(0);
+  const meanSegmentWidth = new Array(config.width).fill(null);
+  for (let x = 0; x < config.width; x += 1) {
+    let insideSegment = false;
+    for (let y = 0; y < config.height; y += 1) {
+      const aboveThreshold = density[y * config.width + x] > threshold;
+      if (aboveThreshold) {
+        bandCells[x] += 1;
+        if (!insideSegment) segmentCount[x] += 1;
+      }
+      insideSegment = aboveThreshold;
+    }
+    if (segmentCount[x] > 0) {
+      meanSegmentWidth[x] = ((bandCells[x] * Q) / segmentCount[x]) | 0;
+    }
+  }
+  return { bandCells, segmentCount, meanSegmentWidth };
+}
+
+function measureCoherenceLength(profile, sourceX) {
+  for (let x = sourceX; x < profile.length; x += 1) {
+    const width = profile[x];
+    if (width !== null && width > 2 * Q) return x;
   }
   return profile.length - 1;
 }
@@ -143,6 +172,50 @@ function cellIndex(point, config, label) {
     throw new RangeError(`${label} is outside the field`);
   }
   return y * config.width + x;
+}
+
+function cellIndices(points, config, label) {
+  if (!Array.isArray(points) || points.length === 0) {
+    throw new TypeError(`${label} must be a non-empty array of [x, y] coordinates`);
+  }
+  const indices = new Int32Array(points.length);
+  const seen = new Uint8Array(config.width * config.height);
+  for (let index = 0; index < points.length; index += 1) {
+    const cell = cellIndex(points[index], config, `${label}[${index}]`);
+    if (seen[cell] !== 0) throw new RangeError(`${label} must not contain duplicate coordinates`);
+    seen[cell] = 1;
+    indices[index] = cell;
+  }
+  return indices;
+}
+
+function createSourceExclusion(source, config) {
+  const excluded = new Uint8Array(config.width * config.height);
+  let count = 0;
+  for (let sourceIndex = 0; sourceIndex < source.length; sourceIndex += 1) {
+    const sourceX = source[sourceIndex][0];
+    const sourceY = source[sourceIndex][1];
+    for (let offset = 0; offset < 5; offset += 1) {
+      const x = sourceX + [0, 0, 1, 0, -1][offset];
+      const y = sourceY + [-1, 0, 0, 1, 0][offset];
+      if (x < 0 || x >= config.width || y < 0 || y >= config.height) continue;
+      const index = y * config.width + x;
+      if (excluded[index] === 0) {
+        excluded[index] = 1;
+        count += 1;
+      }
+    }
+  }
+  return { excluded, count };
+}
+
+function nearestSourceDistance(x, y, source) {
+  let nearest = Number.MAX_SAFE_INTEGER;
+  for (let index = 0; index < source.length; index += 1) {
+    const distance = Math.abs(x - source[index][0]) + Math.abs(y - source[index][1]);
+    if (distance < nearest) nearest = distance;
+  }
+  return nearest;
 }
 
 function neighborIndex(index, direction, width, height) {
@@ -368,8 +441,9 @@ function writeNextFeedback(density, readX, readY, writeX, writeY, field, config)
 export function runSimulation({ lines, source, sink, seed, config: configOverrides = {}, measure = false }) {
   if (!Number.isInteger(seed)) throw new TypeError("seed must be an integer");
   const config = createConfig(configOverrides);
-  const sourceIndex = cellIndex(source, config, "source");
-  const sinkIndex = cellIndex(sink, config, "sink");
+  const sourceIndices = cellIndices(source, config, "source");
+  const sinkIndices = cellIndices(sink, config, "sink");
+  const sourceExclusion = createSourceExclusion(source, config);
   const field = burnLines(lines, config);
   const cellCount = config.width * config.height;
   let densityRead = new Int32Array(cellCount);
@@ -411,19 +485,27 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
   let sourcePositiveScoreDirectionsStep = -1;
   const maximumGuideMagnitude = measure ? guideMagnitudeMax(field) : 0;
   let outOfField = 0;
+  const injectionBase = (config.injectionPerStep / sourceIndices.length) | 0;
+  const injectionRemainder = config.injectionPerStep - injectionBase * sourceIndices.length;
 
   for (let step = 1; step <= config.steps; step += 1) {
-    const remainingAtSource = capacity[sourceIndex] - densityRead[sourceIndex];
-    const injected = remainingAtSource < config.injectionPerStep ? (remainingAtSource > 0 ? remainingAtSource : 0) : config.injectionPerStep;
-    densityRead[sourceIndex] = checkedAdd(densityRead[sourceIndex], injected, "source density");
-    totalInjected = checkedAdd(totalInjected, injected, "totalInjected");
-    let stepStagnation = config.injectionPerStep - injected;
+    let injectedThisStep = 0;
+    for (let sourceOffset = 0; sourceOffset < sourceIndices.length; sourceOffset += 1) {
+      const sourceIndex = sourceIndices[sourceOffset];
+      const requested = injectionBase + (sourceOffset < injectionRemainder ? 1 : 0);
+      const remainingAtSource = capacity[sourceIndex] - densityRead[sourceIndex];
+      const injected = remainingAtSource < requested ? (remainingAtSource > 0 ? remainingAtSource : 0) : requested;
+      densityRead[sourceIndex] = checkedAdd(densityRead[sourceIndex], injected, "source density");
+      injectedThisStep = checkedAdd(injectedThisStep, injected, "step injection");
+    }
+    totalInjected = checkedAdd(totalInjected, injectedThisStep, "totalInjected");
+    let stepStagnation = config.injectionPerStep - injectedThisStep;
     if (measure) {
       for (let index = 0; index < cellCount; index += 1) {
         const amount = densityRead[index];
         const x = index % config.width;
         const y = (index / config.width) | 0;
-        const sourceDistance = Math.abs(x - source[0]) + Math.abs(y - source[1]);
+        const sourceDistance = nearestSourceDistance(x, y, source);
         // Strict comparison keeps the first maximum in step/index iteration order.
         if (amount > densityMax) {
           densityMax = amount;
@@ -431,8 +513,8 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
           densityMaxStep = step;
           densityMaxSourceDistance = sourceDistance;
         }
-        // Exclude the source and its in-bounds Manhattan-distance-1 neighbors.
-        if (sourceDistance > 1 && amount > densityMaxExSource) {
+        // Exclude every source and the union of their Manhattan-distance-1 neighbors.
+        if (sourceExclusion.excluded[index] === 0 && amount > densityMaxExSource) {
           densityMaxExSource = amount;
           densityMaxExSourceCell = [x, y];
           densityMaxExSourceStep = step;
@@ -465,10 +547,13 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
     if (measure) {
       addUnsigned64(capacityLimitedAmount, capacityLimitedThisStep);
       let positiveDirections = 0;
-      for (let direction = 0; direction < 4; direction += 1) {
-        const flowIndex = sourceIndex * 4 + direction;
-        addUnsigned64(sourceOutflow, flows[flowIndex]);
-        if (advectionScores[flowIndex] > 0 || diffusionScores[flowIndex] > 0) positiveDirections += 1;
+      for (let sourceOffset = 0; sourceOffset < sourceIndices.length; sourceOffset += 1) {
+        const sourceIndex = sourceIndices[sourceOffset];
+        for (let direction = 0; direction < 4; direction += 1) {
+          const flowIndex = sourceIndex * 4 + direction;
+          addUnsigned64(sourceOutflow, flows[flowIndex]);
+          if (advectionScores[flowIndex] > 0 || diffusionScores[flowIndex] > 0) positiveDirections += 1;
+        }
       }
       // The final simulated step is the representative step reported below.
       sourcePositiveScoreDirections = positiveDirections;
@@ -493,10 +578,14 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
       totalMoved,
     );
 
-    const completedThisStep = densityWrite[sinkIndex];
+    let completedThisStep = 0;
+    for (let sinkOffset = 0; sinkOffset < sinkIndices.length; sinkOffset += 1) {
+      const sinkIndex = sinkIndices[sinkOffset];
+      completedThisStep = checkedAdd(completedThisStep, densityWrite[sinkIndex], "step completion");
+      densityWrite[sinkIndex] = 0;
+    }
     if (completedThisStep > 0) {
       totalCompleted = checkedAdd(totalCompleted, completedThisStep, "totalCompleted");
-      densityWrite[sinkIndex] = 0;
       if (completionStep === -1 && totalCompleted >= config.completionTarget) completionStep = step;
     }
     if (stepStagnation > maxStagnation) maxStagnation = stepStagnation;
@@ -553,6 +642,8 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
     const advectionShare = percentageUnsigned64(advectionMoved, totalMoved);
     const sourceOutflowTotal = unsigned64ToSafeInteger(sourceOutflow, "sourceOutflow");
     const sigmaProfile = measureSigmaProfile(densityRead, config);
+    const bandThreshold = Math.max(1, (densityMaxExSource / 100) | 0);
+    const bandProfile = measureBandProfile(densityRead, config, bandThreshold);
     result.measurements = {
       densityMax,
       densityMaxCell,
@@ -573,12 +664,22 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
       fluxLimitedAmount: unsigned64ToSafeInteger(fluxLimitedAmount, "fluxLimitedAmount"),
       fluxLimitedEvents: unsigned64ToSafeInteger(fluxLimitedEvents, "fluxLimitedEvents"),
       capacityLimitedAmount: unsigned64ToSafeInteger(capacityLimitedAmount, "capacityLimitedAmount"),
-      sourceDensityFinal: densityRead[sourceIndex],
+      sourceDensityFinal: sourceIndices.reduce((total, index) => checkedAdd(total, densityRead[index], "source density final"), 0),
+      sourceCellCount: sourceIndices.length,
+      sinkCellCount: sinkIndices.length,
+      sourceExclusionCellCount: sourceExclusion.count,
+      injectionBase,
+      injectionRemainder,
       sourceOutflowAverage: sourceOutflowTotal / config.steps,
       sourcePositiveScoreDirections,
       sourcePositiveScoreDirectionsStep,
       sigmaProfile,
-      coherenceLength: measureCoherenceLength(sigmaProfile, source[0]),
+      bandThreshold,
+      bandCells: bandProfile.bandCells,
+      segmentCount: bandProfile.segmentCount,
+      meanSegmentWidth: bandProfile.meanSegmentWidth,
+      coherenceLength: measureCoherenceLength(bandProfile.meanSegmentWidth, source[0][0]),
+      coherenceLengthSigma: measureCoherenceLengthSigma(sigmaProfile, source[0][0]),
       totalCompleted,
       totalInjected,
       outOfField,

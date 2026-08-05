@@ -1,8 +1,8 @@
 {
-  "scenarioId": "poc-0-default",
   "records": [
     {
       "engineVersion": "0.1.0",
+      "scenarioId": "poc-0-default",
       "change": "before subcell bilinear line burning",
       "runtimes": [
         {
@@ -27,6 +27,7 @@
     },
     {
       "engineVersion": "0.2.0",
+      "scenarioId": "poc-0-default",
       "change": "bilinear subcell distribution with fixed w00 remainder and clipped, non-renormalized boundaries",
       "runtimes": [
         {
@@ -51,6 +52,7 @@
     },
     {
       "engineVersion": "0.3.0",
+      "scenarioId": "poc-0-default",
       "change": "vector-magnitude clamping for burned guides, active guides, and reverse feedback",
       "runtimes": [
         {
@@ -75,6 +77,7 @@
     },
     {
       "engineVersion": "0.4.0",
+      "scenarioId": "poc-0-default",
       "change": "per-edge flux limit with an effectively unlimited default and measurement-only diagnostics",
       "runtimes": [
         {
@@ -99,6 +102,7 @@
     },
     {
       "engineVersion": "0.5.0",
+      "scenarioId": "poc-0-default",
       "change": "absorbing field boundary with zero-density exterior diffusion",
       "runtimes": [
         {
@@ -117,6 +121,56 @@
             "straight": "4910305d",
             "distributed": "e63ba5b1",
             "detour": "9164f600"
+          }
+        }
+      ]
+    },
+    {
+      "engineVersion": "0.6.0",
+      "scenarioId": "poc-0-default",
+      "change": "multi-cell source and sink API with single-cell compatibility",
+      "runtimes": [
+        {
+          "node": "v20.20.2",
+          "v8": "11.3.244.8-node.38",
+          "stateHashes": {
+            "straight": "4910305d",
+            "distributed": "e63ba5b1",
+            "detour": "9164f600"
+          }
+        },
+        {
+          "node": "v22.22.2",
+          "v8": "12.4.254.21-node.39",
+          "stateHashes": {
+            "straight": "4910305d",
+            "distributed": "e63ba5b1",
+            "detour": "9164f600"
+          }
+        }
+      ]
+    },
+    {
+      "engineVersion": "0.6.0",
+      "scenarioId": "poc-1-wide",
+      "change": "nine-cell source with a single-cell reference sink",
+      "runtimes": [
+        {
+          "node": "v20.20.2",
+          "v8": "11.3.244.8-node.38",
+          "stateHashes": {
+            "straight": "deca574a",
+            "distributed": "ab9b7ec2",
+            "detour": "ca52f07e"
+          }
+        },
+        {
+          "node": "v22.22.2",
+          "v8": "12.4.254.21-node.39",
+          "stateHashes": {
+            "straight": "deca574a",
+            "distributed": "ab9b7ec2",
+            "detour": "ca52f07e"
           }
         }
       ]
