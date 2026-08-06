@@ -13,17 +13,24 @@ function freezeCells(cells) {
 
 export const SOURCE = freezeCells([[4, 32]]);
 export const SINK = freezeCells([[59, 32]]);
-export const WIDE_SOURCE = freezeCells([
-  [4, 28], [4, 29], [4, 30], [4, 31], [4, 32], [4, 33], [4, 34], [4, 35], [4, 36],
-]);
 
-export function createWideSink(width) {
+function createCenteredCells(x, width, label) {
   if (!Number.isInteger(width) || width <= 0 || width > 63 || (width & 1) === 0) {
-    throw new RangeError("sink width must be an odd integer from 1 through 63");
+    throw new RangeError(`${label} width must be an odd integer from 1 through 63`);
   }
   const firstY = 32 - ((width / 2) | 0);
-  return freezeCells(Array.from({ length: width }, (_, index) => [59, firstY + index]));
+  return freezeCells(Array.from({ length: width }, (_, index) => [x, firstY + index]));
 }
+
+export function createWideSource(width) {
+  return createCenteredCells(4, width, "source");
+}
+
+export function createWideSink(width) {
+  return createCenteredCells(59, width, "sink");
+}
+
+export const WIDE_SOURCE = createWideSource(9);
 
 export const INPUTS = Object.freeze({
   straight: Object.freeze([
