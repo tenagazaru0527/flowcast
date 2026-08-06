@@ -6,6 +6,8 @@ import { clampVector, divQ, fnv1aInt32, isqrt, mulQ, XorShift32 } from "../src/f
 import { burnLines } from "../src/lines.js";
 import {
   createReplay,
+  createWideSink,
+  createWideSource,
   DEFAULT_SEED,
   INPUTS,
   replayInput,
@@ -119,6 +121,27 @@ test("single-cell source and sink arrays preserve 0.5.0 hashes", () => {
       lines: INPUTS[inputName],
       source: SOURCE,
       sink: SINK,
+      seed: DEFAULT_SEED,
+    });
+    assert.equal(result.stateHash, expected[inputName], inputName);
+  }
+});
+
+test("poc-1-wide source width 1 and sink width 1 preserve poc-0-default hashes", () => {
+  const expected = {
+    straight: "4910305d",
+    distributed: "e63ba5b1",
+    detour: "9164f600",
+  };
+  const source = createWideSource(1);
+  const sink = createWideSink(1);
+  assert.deepEqual(createWideSource(3), [[4, 31], [4, 32], [4, 33]]);
+  assert.deepEqual(WIDE_SOURCE, createWideSource(9));
+  for (const inputName of Object.keys(expected)) {
+    const result = runSimulation({
+      lines: INPUTS[inputName],
+      source,
+      sink,
       seed: DEFAULT_SEED,
     });
     assert.equal(result.stateHash, expected[inputName], inputName);
