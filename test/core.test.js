@@ -104,6 +104,8 @@ test("measurement instrumentation does not affect simulation results", () => {
   assert.ok(measured.measurements.meanSegmentWidth.every((width) => (
     width === null || (Number.isInteger(width) && width >= Q)
   )));
+  assert.equal(measured.measurements.w0, 3 * Q);
+  assert.equal(measured.measurements.coherenceLength, 55);
 });
 
 test("single-cell source and sink arrays preserve 0.5.0 hashes", () => {
@@ -150,7 +152,8 @@ test("empty sigma columns remain undefined", () => {
   });
 
   assert.equal(measured.measurements.sigmaProfile[0], null);
-  assert.equal(measured.measurements.coherenceLength, 63);
+  assert.equal(measured.measurements.w0, null);
+  assert.equal(measured.measurements.coherenceLength, null);
   assert.equal(measured.measurements.coherenceLengthSigma, 63);
   assert.equal(measured.measurements.meanSegmentWidth[0], null);
 });

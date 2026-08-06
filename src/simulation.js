@@ -126,7 +126,8 @@ function measureSigmaProfile(density, config) {
 }
 
 function measureCoherenceLengthSigma(profile, sourceX) {
-  for (let x = sourceX; x < profile.length; x += 1) {
+  const startX = sourceX + 2;
+  for (let x = startX; x < profile.length; x += 1) {
     const sigma = profile[x];
     if (sigma !== null && sigma > COHERENCE_SIGMA_THRESHOLD) return x;
   }
@@ -155,11 +156,15 @@ function measureBandProfile(density, config, threshold) {
 }
 
 function measureCoherenceLength(profile, sourceX) {
-  for (let x = sourceX; x < profile.length; x += 1) {
+  const startX = sourceX + 2;
+  const w0 = profile[startX];
+  if (w0 === null || w0 === undefined) return { coherenceLength: null, w0: null };
+  const threshold = w0 * 2;
+  for (let x = startX; x < profile.length; x += 1) {
     const width = profile[x];
-    if (width !== null && width > 2 * Q) return x;
+    if (width !== null && width > threshold) return { coherenceLength: x, w0 };
   }
-  return profile.length - 1;
+  return { coherenceLength: profile.length - 1, w0 };
 }
 
 function cellIndex(point, config, label) {
@@ -644,6 +649,8 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
     const sigmaProfile = measureSigmaProfile(densityRead, config);
     const bandThreshold = Math.max(1, (densityMaxExSource / 100) | 0);
     const bandProfile = measureBandProfile(densityRead, config, bandThreshold);
+    const sourceX = source.reduce((maximum, [x]) => Math.max(maximum, x), 0);
+    const coherence = measureCoherenceLength(bandProfile.meanSegmentWidth, sourceX);
     result.measurements = {
       densityMax,
       densityMaxCell,
@@ -678,8 +685,9 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
       bandCells: bandProfile.bandCells,
       segmentCount: bandProfile.segmentCount,
       meanSegmentWidth: bandProfile.meanSegmentWidth,
-      coherenceLength: measureCoherenceLength(bandProfile.meanSegmentWidth, source[0][0]),
-      coherenceLengthSigma: measureCoherenceLengthSigma(sigmaProfile, source[0][0]),
+      w0: coherence.w0,
+      coherenceLength: coherence.coherenceLength,
+      coherenceLengthSigma: measureCoherenceLengthSigma(sigmaProfile, sourceX),
       totalCompleted,
       totalInjected,
       outOfField,
