@@ -136,7 +136,7 @@ test("poc-1-wide source width 1 and sink width 1 preserve poc-0-default hashes",
   const source = createWideSource(1);
   const sink = createWideSink(1);
   assert.deepEqual(createWideSource(3), [[4, 31], [4, 32], [4, 33]]);
-  assert.deepEqual(WIDE_SOURCE, createWideSource(9));
+  assert.deepEqual(WIDE_SOURCE, createWideSource(1));
   for (const inputName of Object.keys(expected)) {
     const result = runSimulation({
       lines: INPUTS[inputName],
@@ -151,7 +151,7 @@ test("poc-1-wide source width 1 and sink width 1 preserve poc-0-default hashes",
 test("source injection is divided in scenario order without changing the total", () => {
   const measured = runSimulation({
     lines: INPUTS.straight,
-    source: WIDE_SOURCE,
+    source: createWideSource(9),
     sink: SINK,
     seed: DEFAULT_SEED,
     config: { steps: 1 },

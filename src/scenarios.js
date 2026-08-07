@@ -30,7 +30,7 @@ export function createWideSink(width) {
   return createCenteredCells(59, width, "sink");
 }
 
-export const WIDE_SOURCE = createWideSource(9);
+export const WIDE_SOURCE = createWideSource(1);
 
 export const INPUTS = Object.freeze({
   straight: Object.freeze([
@@ -54,7 +54,7 @@ export const WIDE_INPUTS = INPUTS;
 
 export const SCENARIOS = Object.freeze([
   Object.freeze({ scenarioId: SCENARIO_ID, source: SOURCE, sink: SINK, inputs: INPUTS }),
-  Object.freeze({ scenarioId: WIDE_SCENARIO_ID, source: WIDE_SOURCE, sink: createWideSink(1), inputs: WIDE_INPUTS }),
+  Object.freeze({ scenarioId: WIDE_SCENARIO_ID, source: WIDE_SOURCE, sink: createWideSink(5), inputs: WIDE_INPUTS }),
 ]);
 
 function cloneLines(lines) {
