@@ -5,6 +5,8 @@ import { Q, createConfig } from "../src/config.js";
 import { clampVector, divQ, fnv1aInt32, isqrt, mulQ, XorShift32 } from "../src/fixed-point.js";
 import { burnLines } from "../src/lines.js";
 import {
+  createCanyonLayout,
+  createCanyonScenario,
   createReplay,
   createWideSink,
   createWideSource,
@@ -108,6 +110,8 @@ test("measurement instrumentation does not affect simulation results", () => {
   )));
   assert.equal(measured.measurements.w0, 3 * Q);
   assert.equal(measured.measurements.coherenceLength, 55);
+  assert.equal(measured.measurements.blockedCellCount, 0);
+  assert.deepEqual(measured.measurements.gapThroughput, {});
 });
 
 test("single-cell source and sink arrays preserve 0.5.0 hashes", () => {
@@ -145,6 +149,50 @@ test("poc-1-wide source width 1 and sink width 1 preserve poc-0-default hashes",
       seed: DEFAULT_SEED,
     });
     assert.equal(result.stateHash, expected[inputName], inputName);
+  }
+});
+
+test("an empty obstacle mask preserves the new poc-1-wide default hashes", () => {
+  const expected = {
+    straight: "f7606aa8",
+    distributed: "97a13950",
+    detour: "13073731",
+  };
+  for (const inputName of Object.keys(expected)) {
+    const result = runSimulation({
+      lines: INPUTS[inputName],
+      source: createWideSource(1),
+      sink: createWideSink(5),
+      blocked: [],
+      gaps: [],
+      seed: DEFAULT_SEED,
+    });
+    assert.equal(result.stateHash, expected[inputName], inputName);
+  }
+});
+
+test("canyon obstacles stay empty and quantity conservation remains valid", () => {
+  const scenario = createCanyonScenario(1);
+  const input = {
+    lines: scenario.inputs.straight,
+    source: scenario.source,
+    sink: scenario.sink,
+    blocked: scenario.blocked,
+    gaps: scenario.gaps,
+    seed: DEFAULT_SEED,
+    config: { steps: 128 },
+  };
+  const unmeasured = runSimulation(input);
+  const measured = runSimulation({ ...input, measure: true });
+  assert.equal(measured.stateHash, unmeasured.stateHash);
+  assert.equal(measured.totalCompleted, unmeasured.totalCompleted);
+  assert.equal(scenario.blocked.length, 58);
+  assert.equal(measured.measurements.blockedCellCount, 58);
+  assert.ok(measured.measurements.gapThroughput.central > 0);
+  assert.equal(createCanyonLayout(63).blocked.length, 0);
+  for (let index = 0; index < scenario.blocked.length; index += 1) {
+    const [x, y] = scenario.blocked[index];
+    assert.equal(measured.density[y * 64 + x], 0);
   }
 });
 

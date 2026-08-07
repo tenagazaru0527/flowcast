@@ -194,6 +194,41 @@ function cellIndices(points, config, label) {
   return indices;
 }
 
+function createBlockedMask(points, config) {
+  if (!Array.isArray(points)) throw new TypeError("blocked must be an array of [x, y] coordinates");
+  const mask = new Uint8Array(config.width * config.height);
+  for (let index = 0; index < points.length; index += 1) {
+    const cell = cellIndex(points[index], config, `blocked[${index}]`);
+    if (mask[cell] !== 0) throw new RangeError("blocked must not contain duplicate coordinates");
+    mask[cell] = 1;
+  }
+  return { mask, count: points.length };
+}
+
+function createGapMap(gaps, blockedMask, config) {
+  if (!Array.isArray(gaps)) throw new TypeError("gaps must be an array");
+  const cellToGap = new Uint8Array(config.width * config.height);
+  const names = [];
+  for (let gapIndex = 0; gapIndex < gaps.length; gapIndex += 1) {
+    const gap = gaps[gapIndex];
+    if (gap === null || typeof gap !== "object" || Array.isArray(gap)) {
+      throw new TypeError(`gaps[${gapIndex}] must be an object`);
+    }
+    if (typeof gap.name !== "string" || gap.name.length === 0 || names.includes(gap.name)) {
+      throw new RangeError("gap names must be non-empty and unique");
+    }
+    const indices = cellIndices(gap.cells, config, `gaps[${gapIndex}].cells`);
+    names.push(gap.name);
+    for (let cellIndexOffset = 0; cellIndexOffset < indices.length; cellIndexOffset += 1) {
+      const cell = indices[cellIndexOffset];
+      if (blockedMask[cell] !== 0) throw new RangeError("gap cells must not be blocked");
+      if (cellToGap[cell] !== 0) throw new RangeError("gap cells must not overlap");
+      cellToGap[cell] = gapIndex + 1;
+    }
+  }
+  return { cellToGap, names };
+}
+
 function createSourceExclusion(source, config) {
   const excluded = new Uint8Array(config.width * config.height);
   let count = 0;
@@ -266,6 +301,7 @@ function allocatePathFlow(amount, origin, direction, field, perPathFlow) {
 
 function proposeFlows(
   density,
+  blockedMask,
   feedbackX,
   feedbackY,
   field,
@@ -284,6 +320,7 @@ function proposeFlows(
   const cellCount = density.length;
 
   for (let index = 0; index < cellCount; index += 1) {
+    if (blockedMask[index] !== 0) continue;
     const amount = density[index];
     if (amount <= 0) continue;
     const activeGuide = clampVector(
@@ -300,6 +337,7 @@ function proposeFlows(
 
     for (let direction = 0; direction < 4; direction += 1) {
       const destination = neighborIndex(index, direction, config.width, config.height);
+      if (destination >= 0 && blockedMask[destination] !== 0) continue;
       const guideComponent = directionalComponent(guideX, guideY, direction);
       const advectionScore = mulQ(guideComponent, config.advectionWeight);
       // The absorbing exterior has fixed zero density. This creates an outward
@@ -375,6 +413,7 @@ function writeNextDensity(
   read,
   write,
   flows,
+  blockedMask,
   config,
   field,
   perPathFlow,
@@ -386,6 +425,10 @@ function writeNextDensity(
 ) {
   const cellCount = read.length;
   for (let index = 0; index < cellCount; index += 1) {
+    if (blockedMask[index] !== 0) {
+      write[index] = 0;
+      continue;
+    }
     let value = read[index];
     for (let direction = 0; direction < 4; direction += 1) {
       const amount = flows[index * 4 + direction];
@@ -416,6 +459,18 @@ function writeNextDensity(
   }
 }
 
+function measureGapThroughput(flows, gapMap, accumulators, config) {
+  const originX = 31;
+  const direction = 1;
+  for (let y = 0; y < config.height; y += 1) {
+    const origin = y * config.width + originX;
+    const destination = origin + 1;
+    const gapIndex = gapMap[destination] - 1;
+    if (gapIndex < 0) continue;
+    addUnsigned64(accumulators[gapIndex], flows[origin * 4 + direction]);
+  }
+}
+
 function writeNextFeedback(density, readX, readY, writeX, writeY, field, config) {
   let backflowEvents = 0;
   for (let index = 0; index < density.length; index += 1) {
@@ -443,11 +498,28 @@ function writeNextFeedback(density, readX, readY, writeX, writeY, field, config)
   return backflowEvents | 0;
 }
 
-export function runSimulation({ lines, source, sink, seed, config: configOverrides = {}, measure = false }) {
+export function runSimulation({
+  lines,
+  source,
+  sink,
+  blocked = [],
+  gaps = [],
+  seed,
+  config: configOverrides = {},
+  measure = false,
+}) {
   if (!Number.isInteger(seed)) throw new TypeError("seed must be an integer");
   const config = createConfig(configOverrides);
   const sourceIndices = cellIndices(source, config, "source");
   const sinkIndices = cellIndices(sink, config, "sink");
+  const blockedCells = createBlockedMask(blocked, config);
+  const gapMap = createGapMap(gaps, blockedCells.mask, config);
+  for (let index = 0; index < sourceIndices.length; index += 1) {
+    if (blockedCells.mask[sourceIndices[index]] !== 0) throw new RangeError("source cells must not be blocked");
+  }
+  for (let index = 0; index < sinkIndices.length; index += 1) {
+    if (blockedCells.mask[sinkIndices[index]] !== 0) throw new RangeError("sink cells must not be blocked");
+  }
   const sourceExclusion = createSourceExclusion(source, config);
   const field = burnLines(lines, config);
   const cellCount = config.width * config.height;
@@ -459,6 +531,9 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
   let feedbackWriteY = new Int32Array(cellCount);
   const capacity = new Int32Array(cellCount);
   capacity.fill(config.capacity);
+  for (let index = 0; index < cellCount; index += 1) {
+    if (blockedCells.mask[index] !== 0) capacity[index] = 0;
+  }
   const flows = new Int32Array(cellCount * 4);
   const incomingRequested = new Int32Array(cellCount);
   const advectionScores = measure ? new Int32Array(cellCount * 4) : null;
@@ -486,6 +561,7 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
   const fluxLimitedEvents = measure ? new Uint32Array(2) : null;
   const capacityLimitedAmount = measure ? new Uint32Array(2) : null;
   const sourceOutflow = measure ? new Uint32Array(2) : null;
+  const gapThroughput = measure ? gapMap.names.map(() => new Uint32Array(2)) : null;
   let sourcePositiveScoreDirections = 0;
   let sourcePositiveScoreDirectionsStep = -1;
   const maximumGuideMagnitude = measure ? guideMagnitudeMax(field) : 0;
@@ -530,6 +606,7 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
 
     proposeFlows(
       densityRead,
+      blockedCells.mask,
       feedbackReadX,
       feedbackReadY,
       field,
@@ -551,6 +628,7 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
     outOfField = checkedAdd(outOfField, outOfFieldThisStep, "outOfField");
     if (measure) {
       addUnsigned64(capacityLimitedAmount, capacityLimitedThisStep);
+      measureGapThroughput(flows, gapMap.cellToGap, gapThroughput, config);
       let positiveDirections = 0;
       for (let sourceOffset = 0; sourceOffset < sourceIndices.length; sourceOffset += 1) {
         const sourceIndex = sourceIndices[sourceOffset];
@@ -573,6 +651,7 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
       densityRead,
       densityWrite,
       flows,
+      blockedCells.mask,
       config,
       field,
       perPathFlow,
@@ -651,6 +730,13 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
     const bandProfile = measureBandProfile(densityRead, config, bandThreshold);
     const sourceX = source.reduce((maximum, [x]) => Math.max(maximum, x), 0);
     const coherence = measureCoherenceLength(bandProfile.meanSegmentWidth, sourceX);
+    const gapThroughputTotals = {};
+    for (let index = 0; index < gapMap.names.length; index += 1) {
+      gapThroughputTotals[gapMap.names[index]] = unsigned64ToSafeInteger(
+        gapThroughput[index],
+        `gapThroughput.${gapMap.names[index]}`,
+      );
+    }
     result.measurements = {
       densityMax,
       densityMaxCell,
@@ -674,6 +760,8 @@ export function runSimulation({ lines, source, sink, seed, config: configOverrid
       sourceDensityFinal: sourceIndices.reduce((total, index) => checkedAdd(total, densityRead[index], "source density final"), 0),
       sourceCellCount: sourceIndices.length,
       sinkCellCount: sinkIndices.length,
+      blockedCellCount: blockedCells.count,
+      gapThroughput: gapThroughputTotals,
       sourceExclusionCellCount: sourceExclusion.count,
       injectionBase,
       injectionRemainder,
