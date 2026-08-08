@@ -312,6 +312,8 @@ function proposeFlows(
   diffusionScores,
   fluxLimitedAmount,
   fluxLimitedEvents,
+  conductanceStats,
+  step,
 ) {
   flows.fill(0);
   incomingRequested.fill(0);
@@ -339,7 +341,17 @@ function proposeFlows(
       const destination = neighborIndex(index, direction, config.width, config.height);
       if (destination >= 0 && blockedMask[destination] !== 0) continue;
       const guideComponent = directionalComponent(guideX, guideY, direction);
-      const advectionScore = mulQ(guideComponent, config.advectionWeight);
+      const destinationDensityForConductance = destination < 0 ? 0 : density[destination];
+      const occupancyRaw = ((destinationDensityForConductance * Q) / config.congestionReference) | 0;
+      const occupancy = occupancyRaw > Q ? Q : occupancyRaw;
+      const conductance = Q - mulQ(config.congestionWeight, occupancy);
+      const advectionScore = mulQ(mulQ(guideComponent, config.advectionWeight), conductance);
+      if (conductanceStats) {
+        if (conductance < conductanceStats.min) {
+          conductanceStats.min = conductance; conductanceStats.cell = destination < 0 ? index : destination; conductanceStats.step = step;
+        }
+        if (conductance < (Q >> 1)) conductanceStats.throttled += 1;
+      }
       // The absorbing exterior has fixed zero density. This creates an outward
       // diffusion gradient even where no guide reaches the boundary, removing
       // the reflecting-wall behavior by an explicit deterministic rule.
@@ -564,6 +576,7 @@ export function runSimulation({
   const fluxLimitedEvents = measure ? new Uint32Array(2) : null;
   const capacityLimitedAmount = measure ? new Uint32Array(2) : null;
   const sourceOutflow = measure ? new Uint32Array(2) : null;
+  const conductanceStats = measure ? { min: Q, cell: -1, step: -1, throttled: 0 } : null;
   const gapThroughput = measure ? gapMap.names.map(() => new Uint32Array(2)) : null;
   let sourcePositiveScoreDirections = 0;
   let sourcePositiveScoreDirectionsStep = -1;
@@ -620,6 +633,8 @@ export function runSimulation({
       diffusionScores,
       fluxLimitedAmount,
       fluxLimitedEvents,
+      conductanceStats,
+      step,
     );
     const [capacityLimitedThisStep, outOfFieldThisStep] = applyCapacity(
       densityRead,
@@ -788,6 +803,9 @@ export function runSimulation({
       advectionShare,
       diffusionShare: 100 - advectionShare,
       guideMagnitudeMax: maximumGuideMagnitude,
+      conductanceMin: conductanceStats.min,
+      conductanceMinCell: conductanceStats.cell < 0 ? null : [conductanceStats.cell % config.width, (conductanceStats.cell / config.width) | 0, conductanceStats.step],
+      throttledEdgeCount: conductanceStats.throttled,
     };
   }
   return result;
