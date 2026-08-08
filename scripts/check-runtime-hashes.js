@@ -49,6 +49,8 @@ for (let scenarioIndex = 0; scenarioIndex < SCENARIOS.length; scenarioIndex += 1
       lines: scenario.inputs[name],
       source: scenario.source,
       sink: scenario.sink,
+      blocked: scenario.blocked,
+      gaps: scenario.gaps,
       seed: DEFAULT_SEED,
     }).stateHash;
     const expected = runtimeRecord.stateHashes[name];
