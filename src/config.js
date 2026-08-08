@@ -28,10 +28,12 @@ export const DEFAULT_CONFIG = Object.freeze({
   restoreWeight: 0,
   congestionWeight: 0,
   congestionReference: 4 * Q,
+  corridorWidth: 128,
 });
 
 export function createConfig(overrides = {}) {
   const config = { ...DEFAULT_CONFIG, ...overrides };
+  if (!Object.hasOwn(overrides, "corridorWidth")) config.corridorWidth = config.width + config.height;
   const integerKeys = [
     "width",
     "height",
@@ -52,6 +54,7 @@ export function createConfig(overrides = {}) {
     "restoreWeight",
     "congestionWeight",
     "congestionReference",
+    "corridorWidth",
   ];
 
   for (let index = 0; index < integerKeys.length; index += 1) {
@@ -60,7 +63,7 @@ export function createConfig(overrides = {}) {
       throw new TypeError(`${key} must be an integer`);
     }
   }
-  const fixedKeys = integerKeys.slice(2);
+  const fixedKeys = integerKeys.slice(2, -1);
   for (let index = 0; index < fixedKeys.length; index += 1) {
     const key = fixedKeys[index];
     if (config[key] < 0 || config[key] > 128 * Q) {
@@ -75,6 +78,9 @@ export function createConfig(overrides = {}) {
   }
   if (config.congestionReference <= 0) {
     throw new RangeError("congestionReference must be positive");
+  }
+  if (config.corridorWidth < 0 || config.corridorWidth > config.width + config.height) {
+    throw new RangeError("corridorWidth must be an integer cell distance in [0, width + height]");
   }
   if (config.injectionPerStep * config.steps > 2_147_483_647) {
     throw new RangeError("total configured injection must fit Int32");

@@ -340,6 +340,7 @@ function proposeFlows(
     for (let direction = 0; direction < 4; direction += 1) {
       const destination = neighborIndex(index, direction, config.width, config.height);
       if (destination >= 0 && blockedMask[destination] !== 0) continue;
+      if (destination >= 0 && (field.distance[destination] < 0 || field.distance[destination] > config.corridorWidth)) continue;
       const guideComponent = directionalComponent(guideX, guideY, direction);
       const destinationDensityForConductance = destination < 0 ? 0 : density[destination];
       const occupancyRaw = ((destinationDensityForConductance * Q) / config.congestionReference) | 0;
@@ -537,6 +538,7 @@ export function runSimulation({
   const restoreField = buildRestoreField(field.lineMask, blockedCells.mask, config);
   field.restoreX = restoreField.restoreX;
   field.restoreY = restoreField.restoreY;
+  field.distance = restoreField.distance;
   const cellCount = config.width * config.height;
   let densityRead = new Int32Array(cellCount);
   let densityWrite = new Int32Array(cellCount);
@@ -741,6 +743,26 @@ export function runSimulation({
     if (accountedAmount !== totalInjected) {
       throw new Error(`quantity conservation failed: injected=${totalInjected}, accounted=${accountedAmount}`);
     }
+    let corridorEdgeDensityMax = 0;
+    let corridorEdgeDensityMaxCell = null;
+    let corridorEdgeDensityTotal = 0;
+    let corridorEdgeCellCount = 0;
+    let outsideCorridorCells = 0;
+    for (let index = 0; index < densityRead.length; index += 1) {
+      const amount = densityRead[index];
+      if (field.distance[index] < 0 || field.distance[index] > config.corridorWidth) {
+        if (amount > 0) outsideCorridorCells += 1;
+        continue;
+      }
+      if (field.distance[index] === config.corridorWidth) {
+        corridorEdgeCellCount += 1;
+        corridorEdgeDensityTotal = checkedAdd(corridorEdgeDensityTotal, amount, "corridor edge density");
+        if (amount > corridorEdgeDensityMax) {
+          corridorEdgeDensityMax = amount;
+          corridorEdgeDensityMaxCell = [index % config.width, (index / config.width) | 0];
+        }
+      }
+    }
     const advectionShare = percentageUnsigned64(advectionMoved, totalMoved);
     const sourceOutflowTotal = unsigned64ToSafeInteger(sourceOutflow, "sourceOutflow");
     const sigmaProfile = measureSigmaProfile(densityRead, config);
@@ -806,6 +828,10 @@ export function runSimulation({
       conductanceMin: conductanceStats.min,
       conductanceMinCell: conductanceStats.cell < 0 ? null : [conductanceStats.cell % config.width, (conductanceStats.cell / config.width) | 0, conductanceStats.step],
       throttledEdgeCount: conductanceStats.throttled,
+      corridorEdgeDensityMax,
+      corridorEdgeDensityMaxCell,
+      corridorEdgeDensityMean: corridorEdgeCellCount > 0 ? (corridorEdgeDensityTotal / corridorEdgeCellCount) | 0 : null,
+      outsideCorridorCells,
     };
   }
   return result;
