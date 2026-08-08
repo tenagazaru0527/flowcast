@@ -1,5 +1,5 @@
 import { createConfig, Q } from "./config.js";
-import { burnLines } from "./lines.js";
+import { buildRestoreField, burnLines } from "./lines.js";
 import { clampVector, hashHex, isqrt, mulQ } from "./fixed-point.js";
 
 const DIRECTION_X = [0, 1, 0, -1];
@@ -324,8 +324,8 @@ function proposeFlows(
     const amount = density[index];
     if (amount <= 0) continue;
     const activeGuide = clampVector(
-      field.guideX[index] + feedbackX[index],
-      field.guideY[index] + feedbackY[index],
+      field.guideX[index] + feedbackX[index] + mulQ(field.restoreX[index], config.restoreWeight),
+      field.guideY[index] + feedbackY[index] + mulQ(field.restoreY[index], config.restoreWeight),
       config.guideLimit,
     );
     const guideX = activeGuide[0];
@@ -522,6 +522,9 @@ export function runSimulation({
   }
   const sourceExclusion = createSourceExclusion(source, config);
   const field = burnLines(lines, config);
+  const restoreField = buildRestoreField(field.lineMask, blockedCells.mask, config);
+  field.restoreX = restoreField.restoreX;
+  field.restoreY = restoreField.restoreY;
   const cellCount = config.width * config.height;
   let densityRead = new Int32Array(cellCount);
   let densityWrite = new Int32Array(cellCount);

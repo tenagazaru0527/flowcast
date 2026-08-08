@@ -151,7 +151,7 @@ CI通過後、確認不要でマージできる変更は次のとおり。
 
 ```bash
 node scripts/sweep.js --param capacity --values 65536,131072,262144 --mode B
-node scripts/sweep.js --grid grid.json --mode C --workers 4
+node scripts/sweep.js --grid grid.json --scenario canyon --mode C --workers 4
 node --test test/sweep.test.js
 ```
 

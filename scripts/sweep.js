@@ -6,10 +6,12 @@ import { isMainThread, parentPort, Worker, workerData } from "node:worker_thread
 
 import { DEFAULT_CONFIG } from "../src/config.js";
 import {
+  createCanyonScenario,
   createPerturbationsAtPercent,
   DEFAULT_SEED,
   ENGINE_VERSION,
   INPUTS,
+  SCENARIOS,
   SINK,
   SOURCE,
 } from "../src/scenarios.js";
@@ -17,6 +19,7 @@ import { runSimulation } from "../src/simulation.js";
 
 const INPUT_NAMES = Object.freeze(["straight", "distributed", "detour"]);
 const MODES = Object.freeze({ A: [], B: [1], C: [1, 3, 10] });
+const SCENARIO_NAMES = Object.freeze(["default", "wide", "canyon"]);
 
 export function runsPerPoint(mode) {
   if (!Object.hasOwn(MODES, mode)) throw new RangeError("mode must be A, B, or C");
@@ -30,6 +33,7 @@ function usage() {
     "  node scripts/sweep.js --grid grid.json --mode C --workers 4",
     "Options:",
     "  --mode A|B|C                           (default: B)",
+    "  --scenario default|wide|canyon          (default: default)",
     "  --workers N                            (default: min(cores - 1, points))",
     "  --out-dir PATH                         (default: sweep-out)",
   ].join("\n");
@@ -56,7 +60,7 @@ function assertPoint(point, index) {
   if (names.length === 0) throw new RangeError(`grid point ${index} must not be empty`);
   const checked = {};
   for (const name of names) {
-    assertParameterName(name);
+    if (name !== "gapWidth") assertParameterName(name);
     checked[name] = parseInteger(point[name], `grid point ${index}.${name}`);
   }
   return checked;
@@ -74,7 +78,7 @@ function cartesianParameters(parameters) {
     }
     const { name, values } = parameter;
     if (typeof name !== "string") throw new TypeError(`grid.parameters[${index}].name must be a string`);
-    assertParameterName(name);
+    if (name !== "gapWidth") assertParameterName(name);
     if (!Array.isArray(values) || values.length === 0) {
       throw new TypeError(`grid.parameters[${index}].values must be a non-empty array`);
     }
@@ -96,7 +100,7 @@ export function parseGridDocument(document) {
 }
 
 function parseArguments(argv) {
-  const options = { mode: "B", outDir: "sweep-out" };
+  const options = { mode: "B", scenario: "default", outDir: "sweep-out" };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--help" || argument === "-h") return { help: true };
@@ -108,11 +112,13 @@ function parseArguments(argv) {
     else if (argument === "--values") options.values = value;
     else if (argument === "--grid") options.grid = value;
     else if (argument === "--mode") options.mode = value;
+    else if (argument === "--scenario") options.scenario = value;
     else if (argument === "--workers") options.workers = parseInteger(value, "--workers");
     else if (argument === "--out-dir") options.outDir = value;
     else throw new RangeError(`unknown option: ${argument}`);
   }
   if (!Object.hasOwn(MODES, options.mode)) throw new RangeError("--mode must be A, B, or C");
+  if (!SCENARIO_NAMES.includes(options.scenario)) throw new RangeError("--scenario must be default, wide, or canyon");
   if (options.grid !== undefined && (options.param !== undefined || options.values !== undefined)) {
     throw new RangeError("--grid cannot be combined with --param or --values");
   }
@@ -140,8 +146,15 @@ function medianTwice(values) {
   return sorted.length % 2 === 0 ? sorted[middle - 1] + sorted[middle] : sorted[middle] * 2;
 }
 
-function simulate(lines, parameters) {
-  return runSimulation({ lines, source: SOURCE, sink: SINK, seed: DEFAULT_SEED, config: parameters, measure: true });
+function createSweepScenario(scenarioName, parameters) {
+  if (scenarioName === "default") return { source: SOURCE, sink: SINK, inputs: INPUTS, blocked: [], gaps: [] };
+  if (scenarioName === "wide") return SCENARIOS.find((scenario) => scenario.scenarioId === "poc-1-wide");
+  return createCanyonScenario(parameters.gapWidth ?? 1);
+}
+
+function simulate(lines, parameters, scenario) {
+  const { gapWidth, ...config } = parameters;
+  return runSimulation({ lines, source: scenario.source, sink: scenario.sink, blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED, config, measure: true });
 }
 
 function dominatedByAnother(direct, candidateIndex) {
@@ -158,12 +171,13 @@ function dominatedByAnother(direct, candidateIndex) {
   });
 }
 
-function evaluatePoint(pointIndex, parameters, mode) {
-  const direct = INPUT_NAMES.map((inputName) => ({ inputName, result: simulate(INPUTS[inputName], parameters) }));
+function evaluatePoint(pointIndex, parameters, mode, scenarioName) {
+  const scenario = createSweepScenario(scenarioName, parameters);
+  const direct = INPUT_NAMES.map((inputName) => ({ inputName, result: simulate(scenario.inputs[inputName], parameters, scenario) }));
   const baseline = direct.find(({ inputName }) => inputName === "distributed").result;
   const perturbationLevels = MODES[mode].map((percent) => ({
     percent,
-    results: createPerturbationsAtPercent(INPUTS.distributed, percent).map((lines) => simulate(lines, parameters)),
+    results: createPerturbationsAtPercent(scenario.inputs.distributed, percent).map((lines) => simulate(lines, parameters, scenario)),
   }));
   const sensitivity = new Map(perturbationLevels.map(({ percent, results }) => [
     percent,
@@ -196,13 +210,13 @@ function evaluatePoint(pointIndex, parameters, mode) {
   return rows;
 }
 
-function executePoints(points, mode, pointIndexes) {
-  return pointIndexes.flatMap((pointIndex) => evaluatePoint(pointIndex, points[pointIndex], mode));
+function executePoints(points, mode, scenarioName, pointIndexes) {
+  return pointIndexes.flatMap((pointIndex) => evaluatePoint(pointIndex, points[pointIndex], mode, scenarioName));
 }
 
-function executeWorkerPoints(points, mode, pointIndexes) {
+function executeWorkerPoints(points, mode, scenarioName, pointIndexes) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const worker = new Worker(new URL(import.meta.url), { workerData: { points, mode, pointIndexes } });
+    const worker = new Worker(new URL(import.meta.url), { workerData: { points, mode, scenarioName, pointIndexes } });
     worker.once("message", (message) => {
       worker.terminate().then(() => resolvePromise(message), rejectPromise);
     });
@@ -210,17 +224,18 @@ function executeWorkerPoints(points, mode, pointIndexes) {
   });
 }
 
-export async function runSweep({ points, mode = "B", workers } = {}) {
+export async function runSweep({ points, mode = "B", scenarioName = "default", workers } = {}) {
   if (!Array.isArray(points) || points.length === 0) throw new RangeError("points must not be empty");
   runsPerPoint(mode);
+  if (!SCENARIO_NAMES.includes(scenarioName)) throw new RangeError("scenarioName must be default, wide, or canyon");
   const checkedPoints = points.map(assertPoint);
   const defaultWorkers = Math.min(Math.max(availableParallelism() - 1, 1), checkedPoints.length);
   const workerCount = workers === undefined ? defaultWorkers : workers;
   if (!Number.isInteger(workerCount) || workerCount <= 0) throw new RangeError("workers must be a positive integer");
-  if (workerCount === 1) return executePoints(checkedPoints, mode, checkedPoints.map((_, index) => index));
+  if (workerCount === 1) return executePoints(checkedPoints, mode, scenarioName, checkedPoints.map((_, index) => index));
   const buckets = Array.from({ length: Math.min(workerCount, checkedPoints.length) }, () => []);
   for (let index = 0; index < checkedPoints.length; index += 1) buckets[index % buckets.length].push(index);
-  return (await Promise.all(buckets.map((bucket) => executeWorkerPoints(checkedPoints, mode, bucket))))
+  return (await Promise.all(buckets.map((bucket) => executeWorkerPoints(checkedPoints, mode, scenarioName, bucket))))
     .flat()
     .sort((left, right) => left.pointIndex - right.pointIndex || left.runKind.localeCompare(right.runKind)
       || (left.perturbationPercent ?? 0) - (right.perturbationPercent ?? 0)
@@ -271,7 +286,7 @@ async function main() {
   if (options.help) return console.log(usage());
   const points = await loadPoints(options);
   const workers = options.workers ?? Math.min(Math.max(availableParallelism() - 1, 1), points.length);
-  const results = await runSweep({ points, mode: options.mode, workers });
+  const results = await runSweep({ points, mode: options.mode, scenarioName: options.scenario, workers });
   const paths = await writeResults(results, options.outDir);
   console.log(`points: ${points.length}`);
   console.log(`mode: ${options.mode}`);
@@ -281,5 +296,5 @@ async function main() {
   console.log(`csv: ${paths.csvPath}`);
 }
 
-if (!isMainThread) parentPort.postMessage(executePoints(workerData.points, workerData.mode, workerData.pointIndexes));
+if (!isMainThread) parentPort.postMessage(executePoints(workerData.points, workerData.mode, workerData.scenarioName, workerData.pointIndexes));
 else if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => { console.error(error.message); process.exitCode = 1; });

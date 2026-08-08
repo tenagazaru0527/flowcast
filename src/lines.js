@@ -73,6 +73,7 @@ export function burnLines(lines, config) {
   const cellCount = config.width * config.height;
   const guideX = new Int32Array(cellCount);
   const guideY = new Int32Array(cellCount);
+  const lineMask = new Uint8Array(cellCount);
   const perLineGuideX = new Array(lines.length);
   const perLineGuideY = new Array(lines.length);
 
@@ -130,8 +131,69 @@ export function burnLines(lines, config) {
       );
       guideX[index] = clamped[0];
       guideY[index] = clamped[1];
+      if (lineX[index] !== 0 || lineY[index] !== 0) lineMask[index] = 1;
     }
   }
 
-  return { guideX, guideY, perLineGuideX, perLineGuideY };
+  return { guideX, guideY, lineMask, perLineGuideX, perLineGuideY };
+}
+
+
+const RESTORE_DIRECTIONS = Object.freeze([
+  Object.freeze([0, -1]),
+  Object.freeze([0, 1]),
+  Object.freeze([-1, 0]),
+  Object.freeze([1, 0]),
+]);
+
+// Fixed up, down, left, right order controls both BFS discovery and descent ties.
+export function buildRestoreField(lineMask, blockedMask, config) {
+  const cellCount = config.width * config.height;
+  const distance = new Int32Array(cellCount);
+  const queue = new Int32Array(cellCount);
+  const restoreX = new Int32Array(cellCount);
+  const restoreY = new Int32Array(cellCount);
+  distance.fill(-1);
+  let tail = 0;
+  for (let index = 0; index < cellCount; index += 1) {
+    if (lineMask[index] === 0 || blockedMask[index] !== 0) continue;
+    distance[index] = 0;
+    queue[tail] = index;
+    tail += 1;
+  }
+  for (let head = 0; head < tail; head += 1) {
+    const index = queue[head];
+    const x = index % config.width;
+    const y = (index / config.width) | 0;
+    for (let direction = 0; direction < RESTORE_DIRECTIONS.length; direction += 1) {
+      const [offsetX, offsetY] = RESTORE_DIRECTIONS[direction];
+      const nextX = x + offsetX;
+      const nextY = y + offsetY;
+      if (nextX < 0 || nextX >= config.width || nextY < 0 || nextY >= config.height) continue;
+      const next = nextY * config.width + nextX;
+      if (blockedMask[next] !== 0 || distance[next] !== -1) continue;
+      distance[next] = distance[index] + 1;
+      queue[tail] = next;
+      tail += 1;
+    }
+  }
+  for (let index = 0; index < cellCount; index += 1) {
+    const current = distance[index];
+    if (current <= 0) continue;
+    const x = index % config.width;
+    const y = (index / config.width) | 0;
+    for (let direction = 0; direction < RESTORE_DIRECTIONS.length; direction += 1) {
+      const [offsetX, offsetY] = RESTORE_DIRECTIONS[direction];
+      const nextX = x + offsetX;
+      const nextY = y + offsetY;
+      if (nextX < 0 || nextX >= config.width || nextY < 0 || nextY >= config.height) continue;
+      const next = nextY * config.width + nextX;
+      if (distance[next] < 0 || distance[next] >= current) continue;
+      const magnitude = ((Math.min(current, 4) * Q) / 4) | 0;
+      restoreX[index] = offsetX * magnitude;
+      restoreY[index] = offsetY * magnitude;
+      break;
+    }
+  }
+  return { distance, restoreX, restoreY };
 }

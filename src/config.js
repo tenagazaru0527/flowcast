@@ -25,6 +25,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   reverseStrength: Q >> 2,
   reverseDamping: (3 * Q) >> 2,
   reverseLimit: Q,
+  restoreWeight: 0,
 });
 
 export function createConfig(overrides = {}) {
@@ -46,6 +47,7 @@ export function createConfig(overrides = {}) {
     "reverseStrength",
     "reverseDamping",
     "reverseLimit",
+    "restoreWeight",
   ];
 
   for (let index = 0; index < integerKeys.length; index += 1) {
