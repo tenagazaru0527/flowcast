@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { Q, createConfig } from "../src/config.js";
 import { clampVector, divQ, fnv1aInt32, isqrt, mulQ, XorShift32 } from "../src/fixed-point.js";
-import { burnLines } from "../src/lines.js";
+import { buildRestoreField, burnLines } from "../src/lines.js";
 import {
   createCanyonLayout,
   createCanyonScenario,
@@ -13,6 +13,7 @@ import {
   DEFAULT_SEED,
   INPUTS,
   replayInput,
+  SCENARIOS,
   SINK,
   SOURCE,
   WIDE_SOURCE,
@@ -65,6 +66,36 @@ test("line burning emits bounded Int32 guide arrays", () => {
   for (let index = 0; index < field.guideX.length; index += 1) {
     assert.ok(field.guideX[index] >= -Q && field.guideX[index] <= Q);
     assert.ok(field.guideY[index] >= -Q && field.guideY[index] <= Q);
+  }
+});
+
+test("restore field uses fixed descent ties and avoids blocked cells", () => {
+  const config = createConfig({ width: 5, height: 3 });
+  const lineMask = new Uint8Array(15);
+  const blocked = new Uint8Array(15);
+  lineMask[7] = 1;
+  blocked[6] = 1;
+  const field = buildRestoreField(lineMask, blocked, config);
+  assert.equal(field.distance[6], -1);
+  assert.equal(field.distance[7], 0);
+  assert.equal(field.restoreY[2], Q >> 2);
+  assert.equal(field.restoreX[2], 0);
+});
+
+test("restoreWeight zero preserves every 0.7.0 scenario hash", () => {
+  const expected = {
+    "poc-0-default": { straight: "4910305d", distributed: "e63ba5b1", detour: "9164f600" },
+    "poc-1-wide": { straight: "f7606aa8", distributed: "97a13950", detour: "13073731" },
+    "poc-2-canyon": { straight: "e3ddaebc", distributed: "6e03aff9", detour: "ae3a98ad" },
+  };
+  for (const scenario of SCENARIOS) {
+    for (const inputName of Object.keys(expected[scenario.scenarioId])) {
+      const result = runSimulation({
+        lines: scenario.inputs[inputName], source: scenario.source, sink: scenario.sink,
+        blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED, config: { restoreWeight: 0 },
+      });
+      assert.equal(result.stateHash, expected[scenario.scenarioId][inputName], `${scenario.scenarioId}/${inputName}`);
+    }
   }
 });
 

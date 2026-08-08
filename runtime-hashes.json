@@ -249,6 +249,81 @@
           }
         }
       ]
+    },
+    {
+      "engineVersion": "0.8.0",
+      "scenarioId": "poc-0-default",
+      "change": "static obstacle-aware line-distance restoring field with restoreWeight defaulting to zero",
+      "runtimes": [
+        {
+          "node": "v20.20.2",
+          "v8": "11.3.244.8-node.38",
+          "stateHashes": {
+            "straight": "4910305d",
+            "distributed": "e63ba5b1",
+            "detour": "9164f600"
+          }
+        },
+        {
+          "node": "v22.22.2",
+          "v8": "12.4.254.21-node.39",
+          "stateHashes": {
+            "straight": "4910305d",
+            "distributed": "e63ba5b1",
+            "detour": "9164f600"
+          }
+        }
+      ]
+    },
+    {
+      "engineVersion": "0.8.0",
+      "scenarioId": "poc-1-wide",
+      "change": "static obstacle-aware line-distance restoring field with restoreWeight defaulting to zero",
+      "runtimes": [
+        {
+          "node": "v20.20.2",
+          "v8": "11.3.244.8-node.38",
+          "stateHashes": {
+            "straight": "f7606aa8",
+            "distributed": "97a13950",
+            "detour": "13073731"
+          }
+        },
+        {
+          "node": "v22.22.2",
+          "v8": "12.4.254.21-node.39",
+          "stateHashes": {
+            "straight": "f7606aa8",
+            "distributed": "97a13950",
+            "detour": "13073731"
+          }
+        }
+      ]
+    },
+    {
+      "engineVersion": "0.8.0",
+      "scenarioId": "poc-2-canyon",
+      "change": "static obstacle-aware line-distance restoring field with restoreWeight defaulting to zero",
+      "runtimes": [
+        {
+          "node": "v20.20.2",
+          "v8": "11.3.244.8-node.38",
+          "stateHashes": {
+            "straight": "e3ddaebc",
+            "distributed": "6e03aff9",
+            "detour": "ae3a98ad"
+          }
+        },
+        {
+          "node": "v22.22.2",
+          "v8": "12.4.254.21-node.39",
+          "stateHashes": {
+            "straight": "e3ddaebc",
+            "distributed": "6e03aff9",
+            "detour": "ae3a98ad"
+          }
+        }
+      ]
     }
   ]
 }
