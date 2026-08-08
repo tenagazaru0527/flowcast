@@ -26,6 +26,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   reverseDamping: (3 * Q) >> 2,
   reverseLimit: Q,
   restoreWeight: 0,
+  congestionWeight: 0,
+  congestionReference: 4 * Q,
 });
 
 export function createConfig(overrides = {}) {
@@ -48,6 +50,8 @@ export function createConfig(overrides = {}) {
     "reverseDamping",
     "reverseLimit",
     "restoreWeight",
+    "congestionWeight",
+    "congestionReference",
   ];
 
   for (let index = 0; index < integerKeys.length; index += 1) {
@@ -68,6 +72,9 @@ export function createConfig(overrides = {}) {
   }
   if (config.capacity <= 0 || config.burnRadius <= 0) {
     throw new RangeError("capacity and burnRadius must be positive");
+  }
+  if (config.congestionReference <= 0) {
+    throw new RangeError("congestionReference must be positive");
   }
   if (config.injectionPerStep * config.steps > 2_147_483_647) {
     throw new RangeError("total configured injection must fit Int32");
