@@ -19,8 +19,21 @@
 - 報告はチャットやPR本文ではなく `docs/reports/step-NN.md` にcommitする
 - 掃引CSVは `docs/reports/data/step-NN-sweep.csv` に置く。JSONLはcommitしない
 - CSVが1MBを超える場合は要約版を置き、報告に明記する
-- PR本文は `docs/reports/step-NN.md` へのリンクだけにする
+- PR本文は先頭に対応するIssueを記載し、その次に
+  `docs/reports/step-NN.md` へのリンクだけを記載する
 - PR作成後はマージせず停止し、レビュー結果を待つ
+
+### Issue のクローズ
+
+PR本文の先頭には、対応するIssueを次の規則で記載する。
+
+- 1つのIssueが1つのPRで完結する場合は `Closes #N` とし、マージ時に自動でクローズする
+- 1つのIssueが複数のPRにまたがる場合は `Refs #N` とし、最後のPRのマージ後にCodexが明示的にクローズする
+
+Issueを明示的にクローズするときのコメントには、次の項目だけを記載する。
+
+- 報告ファイルのパス（`docs/reports/step-NN.md`）
+- 積み残しがある場合は、それを引き継いだ先のIssue番号
 
 CI通過後、確認不要でマージできる変更は次のとおり。
 
@@ -101,16 +114,50 @@ CI通過後、確認不要でマージできる変更は次のとおり。
 ### 残リスク・判断を仰ぎたい点
 ```
 
+## 掃引モード
+
+掃引の実行本数を Issue で指定する。**指定がない場合は B とする。**
+
+| モード | 実行内容 | 掃引点1つあたり |
+|---|---|---:|
+| A（探索） | 3入力の基本ラン＋基準4（基本ランから算出） | 3ラン |
+| B（既定） | A ＋ 基準2（1%変位 × 10） | 13ラン |
+| C（感度が論点） | B ＋ 基準3（3% / 10% × 各10） | 33ラン |
+
+### 選び方
+
+- **A**：場で何が起きるかを問う Step（滞留の発生、経路の勝敗、分布の形）
+- **B**：既定。手ぶれ耐性がパラメータでどう変わるかを見たい場合
+- **C**：感度そのものが論点の Step（adv:diff 比の掃引など）
+
+### 基準1（決定性）は掃引で評価しない
+
+決定性はエンジンの性質であり、掃引点ごとの性質ではない。
+`scripts/check-runtime-hashes.js` と CI が既に担保している。
+**掃引点ごとの再実行は行わない。**
+
+### steps は変更しない
+
+探索目的でも `steps` を 3600 から変えないこと。
+判定用の結果と混ざると比較不能になる。
+
 ## 掃引ハーネス
 
 `scripts/sweep.js` は実行と記録だけを行い、合否判定・順位付け・推奨を行わない。
-出力は `sweep-out/results.jsonl` と `sweep-out/results.csv` で、格子順、入力順に固定される。
+出力は `sweep-out/results.jsonl` と `sweep-out/results.csv` で、格子順、実行種別順に固定される。
+モードにかかわらずCSV列は同一で、実行していない感度項目は空欄となる（0ではない）。
+基準4は3入力の基本ランから `criterion4Dominated` として算出する。これは優越関係の生値であり、
+掃引ハーネスは合否・順位・推奨を出力しない。
 
 ```bash
-node scripts/sweep.js --param capacity --values 65536,131072,262144 --inputs all
-node scripts/sweep.js --grid grid.json --workers 8
+node scripts/sweep.js --param capacity --values 65536,131072,262144 --mode B
+node scripts/sweep.js --grid grid.json --mode C --workers 4
 node --test test/sweep.test.js
 ```
+
+Node 22 での決定性確認は CI（Node 20/22 マトリクス）が担保する。
+ローカルでは Node 20 のみで検証し、Node 22 の結果は CI の実行結果を参照する。
+ローカルに Node 22 を導入しないこと（本構成はゼロ依存を維持する）。
 
 多次元格子は、配列形式、`{ "points": [...] }`、または次の直積形式を受け付ける。
 
@@ -118,7 +165,7 @@ node --test test/sweep.test.js
 {
   "parameters": [
     { "name": "capacity", "values": [65536, 131072] },
-    { "name": "steps", "values": [1800, 3600] }
+    { "name": "edgeFluxMax", "values": [32768, 65536] }
   ]
 }
 ```

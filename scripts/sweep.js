@@ -5,26 +5,33 @@ import { fileURLToPath } from "node:url";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { runSimulation } from "../src/simulation.js";
 import {
+  createPerturbationsAtPercent,
   DEFAULT_SEED,
   ENGINE_VERSION,
   INPUTS,
   SINK,
   SOURCE,
 } from "../src/scenarios.js";
+import { runSimulation } from "../src/simulation.js";
 
 const INPUT_NAMES = Object.freeze(["straight", "distributed", "detour"]);
+const MODES = Object.freeze({ A: [], B: [1], C: [1, 3, 10] });
+
+export function runsPerPoint(mode) {
+  if (!Object.hasOwn(MODES, mode)) throw new RangeError("mode must be A, B, or C");
+  return INPUT_NAMES.length + MODES[mode].length * 10;
+}
 
 function usage() {
   return [
     "Usage:",
-    "  node scripts/sweep.js --param capacity --values 65536,131072 --inputs all",
-    "  node scripts/sweep.js --grid grid.json --workers 8",
+    "  node scripts/sweep.js --param capacity --values 65536,131072 --mode B",
+    "  node scripts/sweep.js --grid grid.json --mode C --workers 4",
     "Options:",
-    "  --inputs all|straight,distributed,detour  (default: all)",
-    "  --workers N                              (default: min(cores - 1, runs))",
-    "  --out-dir PATH                           (default: sweep-out)",
+    "  --mode A|B|C                           (default: B)",
+    "  --workers N                            (default: min(cores - 1, points))",
+    "  --out-dir PATH                         (default: sweep-out)",
   ].join("\n");
 }
 
@@ -38,6 +45,7 @@ function assertParameterName(name) {
   if (!Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, name)) {
     throw new RangeError(`unknown config parameter: ${name}`);
   }
+  if (name === "steps") throw new RangeError("steps must remain 3600 during sweeps");
 }
 
 function assertPoint(point, index) {
@@ -47,8 +55,7 @@ function assertPoint(point, index) {
   const names = Object.keys(point).sort();
   if (names.length === 0) throw new RangeError(`grid point ${index} must not be empty`);
   const checked = {};
-  for (let nameIndex = 0; nameIndex < names.length; nameIndex += 1) {
-    const name = names[nameIndex];
+  for (const name of names) {
     assertParameterName(name);
     checked[name] = parseInteger(point[name], `grid point ${index}.${name}`);
   }
@@ -71,16 +78,10 @@ function cartesianParameters(parameters) {
     if (!Array.isArray(values) || values.length === 0) {
       throw new TypeError(`grid.parameters[${index}].values must be a non-empty array`);
     }
-    const next = [];
-    for (let pointIndex = 0; pointIndex < points.length; pointIndex += 1) {
-      for (let valueIndex = 0; valueIndex < values.length; valueIndex += 1) {
-        next.push({
-          ...points[pointIndex],
-          [name]: parseInteger(values[valueIndex], `grid.parameters[${index}].values[${valueIndex}]`),
-        });
-      }
-    }
-    points = next;
+    points = points.flatMap((point) => values.map((value, valueIndex) => ({
+      ...point,
+      [name]: parseInteger(value, `grid.parameters[${index}].values[${valueIndex}]`),
+    })));
   }
   return points;
 }
@@ -94,18 +95,8 @@ export function parseGridDocument(document) {
   throw new TypeError("grid must be an array, { points: [...] }, or { parameters: [...] }");
 }
 
-function parseInputs(value = "all") {
-  if (value === "all") return [...INPUT_NAMES];
-  const names = value.split(",").filter((name) => name.length > 0);
-  if (names.length === 0) throw new RangeError("--inputs must select at least one input");
-  for (let index = 0; index < names.length; index += 1) {
-    if (!INPUT_NAMES.includes(names[index])) throw new RangeError(`unknown input: ${names[index]}`);
-  }
-  return names;
-}
-
 function parseArguments(argv) {
-  const options = { inputs: "all", outDir: "sweep-out" };
+  const options = { mode: "B", outDir: "sweep-out" };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--help" || argument === "-h") return { help: true };
@@ -116,96 +107,128 @@ function parseArguments(argv) {
     if (argument === "--param") options.param = value;
     else if (argument === "--values") options.values = value;
     else if (argument === "--grid") options.grid = value;
-    else if (argument === "--inputs") options.inputs = value;
+    else if (argument === "--mode") options.mode = value;
     else if (argument === "--workers") options.workers = parseInteger(value, "--workers");
     else if (argument === "--out-dir") options.outDir = value;
     else throw new RangeError(`unknown option: ${argument}`);
   }
+  if (!Object.hasOwn(MODES, options.mode)) throw new RangeError("--mode must be A, B, or C");
   if (options.grid !== undefined && (options.param !== undefined || options.values !== undefined)) {
     throw new RangeError("--grid cannot be combined with --param or --values");
   }
   if (options.grid === undefined && (options.param === undefined || options.values === undefined)) {
     throw new RangeError("specify either --grid or both --param and --values");
   }
-  if (options.workers !== undefined && options.workers <= 0) {
-    throw new RangeError("--workers must be positive");
-  }
+  if (options.workers !== undefined && options.workers <= 0) throw new RangeError("--workers must be positive");
   return options;
 }
 
-function createJobs(points, inputNames) {
-  const jobs = [];
-  for (let pointIndex = 0; pointIndex < points.length; pointIndex += 1) {
-    for (let inputIndex = 0; inputIndex < inputNames.length; inputIndex += 1) {
-      jobs.push({
-        order: jobs.length,
-        pointIndex,
-        inputIndex,
-        parameters: points[pointIndex],
-        inputName: inputNames[inputIndex],
+function variationBasisPoints(baseline, candidate) {
+  const base = baseline.measurements;
+  const next = candidate.measurements;
+  if (base.totalCompleted <= 0 || base.totalInjected <= 0 || next.totalInjected <= 0) return null;
+  const candidateScaled = BigInt(next.totalCompleted) * BigInt(base.totalInjected);
+  const baselineScaled = BigInt(base.totalCompleted) * BigInt(next.totalInjected);
+  const difference = candidateScaled >= baselineScaled ? candidateScaled - baselineScaled : baselineScaled - candidateScaled;
+  return Number((difference * 10_000n) / (BigInt(next.totalInjected) * BigInt(base.totalCompleted)));
+}
+
+function medianTwice(values) {
+  if (values.some((value) => value === null)) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = (sorted.length / 2) | 0;
+  return sorted.length % 2 === 0 ? sorted[middle - 1] + sorted[middle] : sorted[middle] * 2;
+}
+
+function simulate(lines, parameters) {
+  return runSimulation({ lines, source: SOURCE, sink: SINK, seed: DEFAULT_SEED, config: parameters, measure: true });
+}
+
+function dominatedByAnother(direct, candidateIndex) {
+  const candidate = direct[candidateIndex].result.measurements;
+  return direct.some(({ result }, otherIndex) => {
+    if (otherIndex === candidateIndex) return false;
+    const other = result.measurements;
+    const candidateStep = candidate.completionStep < 0 ? Number.POSITIVE_INFINITY : candidate.completionStep;
+    const otherStep = other.completionStep < 0 ? Number.POSITIVE_INFINITY : other.completionStep;
+    return other.totalCompleted >= candidate.totalCompleted
+      && otherStep <= candidateStep
+      && other.maxStagnation <= candidate.maxStagnation
+      && (other.totalCompleted > candidate.totalCompleted || otherStep < candidateStep || other.maxStagnation < candidate.maxStagnation);
+  });
+}
+
+function evaluatePoint(pointIndex, parameters, mode) {
+  const direct = INPUT_NAMES.map((inputName) => ({ inputName, result: simulate(INPUTS[inputName], parameters) }));
+  const baseline = direct.find(({ inputName }) => inputName === "distributed").result;
+  const perturbationLevels = MODES[mode].map((percent) => ({
+    percent,
+    results: createPerturbationsAtPercent(INPUTS.distributed, percent).map((lines) => simulate(lines, parameters)),
+  }));
+  const sensitivity = new Map(perturbationLevels.map(({ percent, results }) => [
+    percent,
+    results.map((result) => variationBasisPoints(baseline, result)),
+  ]));
+  const summaries = new Map([...sensitivity].map(([percent, values]) => [percent, medianTwice(values)]));
+  const rows = direct.map(({ inputName, result }, inputOrder) => ({
+    pointIndex, parameters, mode, runKind: "basic", inputName, perturbationPercent: null, perturbationIndex: null,
+    inputOrder,
+    engineVersion: ENGINE_VERSION, stateHash: result.stateHash, measurements: result.measurements,
+    sensitivityBasisPoints: null,
+    criterion4Dominated: dominatedByAnother(direct, inputOrder),
+    criterion2MedianTwiceBasisPoints: summaries.get(1) ?? null,
+    criterion3Median3TwiceBasisPoints: summaries.get(3) ?? null,
+    criterion3Median10TwiceBasisPoints: summaries.get(10) ?? null,
+  }));
+  for (const { percent, results } of perturbationLevels) {
+    for (let index = 0; index < results.length; index += 1) {
+      rows.push({
+        pointIndex, parameters, mode, runKind: "perturbation", inputName: "distributed", perturbationPercent: percent,
+        perturbationIndex: index + 1, inputOrder: INPUT_NAMES.indexOf("distributed"), engineVersion: ENGINE_VERSION, stateHash: results[index].stateHash,
+        measurements: results[index].measurements, sensitivityBasisPoints: sensitivity.get(percent)[index],
+        criterion4Dominated: null,
+        criterion2MedianTwiceBasisPoints: summaries.get(1) ?? null,
+        criterion3Median3TwiceBasisPoints: summaries.get(3) ?? null,
+        criterion3Median10TwiceBasisPoints: summaries.get(10) ?? null,
       });
     }
   }
-  return jobs;
+  return rows;
 }
 
-function executeJob(job) {
-  const result = runSimulation({
-    lines: INPUTS[job.inputName],
-    source: SOURCE,
-    sink: SINK,
-    seed: DEFAULT_SEED,
-    config: job.parameters,
-    measure: true,
-  });
-  return {
-    ...job,
-    engineVersion: ENGINE_VERSION,
-    stateHash: result.stateHash,
-    measurements: result.measurements,
-  };
+function executePoints(points, mode, pointIndexes) {
+  return pointIndexes.flatMap((pointIndex) => evaluatePoint(pointIndex, points[pointIndex], mode));
 }
 
-function executeJobs(jobs) {
-  return jobs.map(executeJob);
-}
-
-function executeWorkerJobs(jobs) {
+function executeWorkerPoints(points, mode, pointIndexes) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const worker = new Worker(new URL(import.meta.url), { workerData: { jobs } });
-    let settled = false;
+    const worker = new Worker(new URL(import.meta.url), { workerData: { points, mode, pointIndexes } });
     worker.once("message", (message) => {
-      settled = true;
-      resolvePromise(message);
+      worker.terminate().then(() => resolvePromise(message), rejectPromise);
     });
-    worker.once("error", (error) => {
-      settled = true;
-      rejectPromise(error);
-    });
-    worker.once("exit", (code) => {
-      if (!settled && code !== 0) rejectPromise(new Error(`worker stopped with exit code ${code}`));
-    });
+    worker.once("error", rejectPromise);
   });
 }
 
-export async function runSweep({ points, inputNames = INPUT_NAMES, workers } = {}) {
+export async function runSweep({ points, mode = "B", workers } = {}) {
   if (!Array.isArray(points) || points.length === 0) throw new RangeError("points must not be empty");
+  runsPerPoint(mode);
   const checkedPoints = points.map(assertPoint);
-  const checkedInputs = parseInputs(inputNames.join(","));
-  const jobs = createJobs(checkedPoints, checkedInputs);
-  const defaultWorkers = Math.min(Math.max(availableParallelism() - 1, 1), jobs.length);
+  const defaultWorkers = Math.min(Math.max(availableParallelism() - 1, 1), checkedPoints.length);
   const workerCount = workers === undefined ? defaultWorkers : workers;
   if (!Number.isInteger(workerCount) || workerCount <= 0) throw new RangeError("workers must be a positive integer");
-  if (workerCount === 1) return executeJobs(jobs);
-
-  const activeWorkers = Math.min(workerCount, jobs.length);
-  const buckets = Array.from({ length: activeWorkers }, () => []);
-  for (let index = 0; index < jobs.length; index += 1) buckets[index % activeWorkers].push(jobs[index]);
-  const groups = await Promise.all(buckets.map(executeWorkerJobs));
-  return groups.flat().sort((left, right) => left.order - right.order);
+  if (workerCount === 1) return executePoints(checkedPoints, mode, checkedPoints.map((_, index) => index));
+  const buckets = Array.from({ length: Math.min(workerCount, checkedPoints.length) }, () => []);
+  for (let index = 0; index < checkedPoints.length; index += 1) buckets[index % buckets.length].push(index);
+  return (await Promise.all(buckets.map((bucket) => executeWorkerPoints(checkedPoints, mode, bucket))))
+    .flat()
+    .sort((left, right) => left.pointIndex - right.pointIndex || left.runKind.localeCompare(right.runKind)
+      || (left.perturbationPercent ?? 0) - (right.perturbationPercent ?? 0)
+      || (left.perturbationIndex ?? 0) - (right.perturbationIndex ?? 0) || left.inputOrder - right.inputOrder);
 }
 
 function csvValue(value) {
+  if (value === null || value === undefined) return "";
   const text = String(value);
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
@@ -217,74 +240,46 @@ export function serializeJsonLines(results) {
 export function serializeCsv(results) {
   const parameterNames = [...new Set(results.flatMap((result) => Object.keys(result.parameters)))].sort();
   const measurementNames = [...new Set(results.flatMap((result) => Object.keys(result.measurements)))].sort();
-  const headers = [
-    "pointIndex",
-    "inputName",
-    "engineVersion",
-    "stateHash",
-    ...parameterNames.map((name) => `param.${name}`),
-    ...measurementNames.map((name) => `measurement.${name}`),
-  ];
-  const rows = results.map((result) => [
-    result.pointIndex,
-    result.inputName,
-    result.engineVersion,
-    result.stateHash,
-    ...parameterNames.map((name) => result.parameters[name] ?? ""),
-    ...measurementNames.map((name) => result.measurements[name] ?? ""),
-  ].map(csvValue).join(","));
+  const headers = ["pointIndex", "mode", "runKind", "inputName", "perturbationPercent", "perturbationIndex", "engineVersion", "stateHash",
+    ...parameterNames.map((name) => `param.${name}`), ...measurementNames.map((name) => `measurement.${name}`),
+    "sensitivityBasisPoints", "criterion4Dominated", "criterion2MedianTwiceBasisPoints", "criterion3Median3TwiceBasisPoints", "criterion3Median10TwiceBasisPoints"];
+  const rows = results.map((result) => [result.pointIndex, result.mode, result.runKind, result.inputName, result.perturbationPercent,
+    result.perturbationIndex, result.engineVersion, result.stateHash, ...parameterNames.map((name) => result.parameters[name]),
+    ...measurementNames.map((name) => result.measurements[name]), result.sensitivityBasisPoints, result.criterion4Dominated, result.criterion2MedianTwiceBasisPoints,
+    result.criterion3Median3TwiceBasisPoints, result.criterion3Median10TwiceBasisPoints].map(csvValue).join(","));
   return `${headers.map(csvValue).join(",")}\n${rows.join("\n")}\n`;
 }
 
 async function loadPoints(options) {
-  if (options.grid !== undefined) {
-    const document = JSON.parse(await readFile(resolve(options.grid), "utf8"));
-    return parseGridDocument(document);
-  }
+  if (options.grid !== undefined) return parseGridDocument(JSON.parse(await readFile(resolve(options.grid), "utf8")));
   assertParameterName(options.param);
   const values = options.values.split(",");
-  if (values.length === 0 || values.some((value) => value.length === 0)) {
-    throw new RangeError("--values must be a comma-separated list");
-  }
-  return values.map((value, index) => ({
-    [options.param]: parseInteger(value, `--values[${index}]`),
-  }));
+  if (values.length === 0 || values.some((value) => value.length === 0)) throw new RangeError("--values must be a comma-separated list");
+  return values.map((value, index) => ({ [options.param]: parseInteger(value, `--values[${index}]`) }));
 }
 
 async function writeResults(results, outDir) {
   const jsonPath = resolve(outDir, "results.jsonl");
   const csvPath = resolve(outDir, "results.csv");
   await mkdir(dirname(jsonPath), { recursive: true });
-  await Promise.all([
-    writeFile(jsonPath, serializeJsonLines(results), "utf8"),
-    writeFile(csvPath, serializeCsv(results), "utf8"),
-  ]);
+  await Promise.all([writeFile(jsonPath, serializeJsonLines(results), "utf8"), writeFile(csvPath, serializeCsv(results), "utf8")]);
   return { jsonPath, csvPath };
 }
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
-  if (options.help) {
-    console.log(usage());
-    return;
-  }
+  if (options.help) return console.log(usage());
   const points = await loadPoints(options);
-  const inputNames = parseInputs(options.inputs);
-  const runCount = points.length * inputNames.length;
-  const workers = options.workers ?? Math.min(Math.max(availableParallelism() - 1, 1), runCount);
-  const results = await runSweep({ points, inputNames, workers });
+  const workers = options.workers ?? Math.min(Math.max(availableParallelism() - 1, 1), points.length);
+  const results = await runSweep({ points, mode: options.mode, workers });
   const paths = await writeResults(results, options.outDir);
+  console.log(`points: ${points.length}`);
+  console.log(`mode: ${options.mode}`);
   console.log(`runs: ${results.length}`);
-  console.log(`workers: ${Math.min(workers, runCount)}`);
+  console.log(`workers: ${Math.min(workers, points.length)}`);
   console.log(`jsonl: ${paths.jsonPath}`);
   console.log(`csv: ${paths.csvPath}`);
 }
 
-if (!isMainThread) {
-  parentPort.postMessage(executeJobs(workerData.jobs));
-} else if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch((error) => {
-    console.error(error.message);
-    process.exitCode = 1;
-  });
-}
+if (!isMainThread) parentPort.postMessage(executePoints(workerData.points, workerData.mode, workerData.pointIndexes));
+else if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => { console.error(error.message); process.exitCode = 1; });
