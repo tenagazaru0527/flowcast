@@ -267,6 +267,40 @@ function neighborIndex(index, direction, width, height) {
   return nextY * width + nextX;
 }
 
+function measureFieldEdgeDensity(density, config) {
+  let maximum = 0;
+  let maximumCell = null;
+  for (let index = 0; index < density.length; index += 1) {
+    const x = index % config.width;
+    const y = (index / config.width) | 0;
+    if (x !== 0 && x !== config.width - 1 && y !== 0 && y !== config.height - 1) continue;
+    if (density[index] > maximum) {
+      maximum = density[index];
+      maximumCell = [x, y];
+    }
+  }
+  return { maximum, maximumCell };
+}
+
+function measureBlockedFrontDensity(density, blockedMask, blockedCount, config) {
+  if (blockedCount === 0) return { maximum: null, maximumCell: null };
+  let maximum = 0;
+  let maximumCell = null;
+  for (let index = 0; index < density.length; index += 1) {
+    if (blockedMask[index] !== 0) continue;
+    for (let direction = 0; direction < 4; direction += 1) {
+      const neighbor = neighborIndex(index, direction, config.width, config.height);
+      if (neighbor < 0 || blockedMask[neighbor] === 0) continue;
+      if (density[index] > maximum) {
+        maximum = density[index];
+        maximumCell = [index % config.width, (index / config.width) | 0];
+      }
+      break;
+    }
+  }
+  return { maximum, maximumCell };
+}
+
 function directionalComponent(x, y, direction) {
   if (direction === 0) return y < 0 ? -y : 0;
   if (direction === 1) return x > 0 ? x : 0;
@@ -339,6 +373,7 @@ function proposeFlows(
 
     for (let direction = 0; direction < 4; direction += 1) {
       const destination = neighborIndex(index, direction, config.width, config.height);
+      if (destination < 0 && config.corridorBlocksOutOfField) continue;
       if (destination >= 0 && blockedMask[destination] !== 0) continue;
       if (destination >= 0 && (field.distance[destination] < 0 || field.distance[destination] > config.corridorWidth)) continue;
       const guideComponent = directionalComponent(guideX, guideY, direction);
@@ -592,6 +627,10 @@ export function runSimulation({
   let outOfField = 0;
   let corridorEdgeDensityPeak = 0;
   let corridorEdgeDensityPeakCell = null;
+  let fieldEdgeDensityPeak = 0;
+  let fieldEdgeDensityPeakCell = null;
+  let blockedFrontDensityPeak = blockedCells.count === 0 ? null : 0;
+  let blockedFrontDensityPeakCell = null;
   const injectionBase = (config.injectionPerStep / sourceIndices.length) | 0;
   const injectionRemainder = config.injectionPerStep - injectionBase * sourceIndices.length;
 
@@ -631,6 +670,16 @@ export function runSimulation({
           corridorEdgeDensityPeak = amount;
           corridorEdgeDensityPeakCell = [x, y, step];
         }
+      }
+      const fieldEdge = measureFieldEdgeDensity(densityRead, config);
+      if (fieldEdge.maximum > fieldEdgeDensityPeak) {
+        fieldEdgeDensityPeak = fieldEdge.maximum;
+        fieldEdgeDensityPeakCell = [...fieldEdge.maximumCell, step];
+      }
+      const blockedFront = measureBlockedFrontDensity(densityRead, blockedCells.mask, blockedCells.count, config);
+      if (blockedFront.maximum !== null && blockedFront.maximum > blockedFrontDensityPeak) {
+        blockedFrontDensityPeak = blockedFront.maximum;
+        blockedFrontDensityPeakCell = [...blockedFront.maximumCell, step];
       }
     }
 
@@ -783,6 +832,8 @@ export function runSimulation({
       corridorEdgeDensityPeak = corridorEdgeDensityMax;
       corridorEdgeDensityPeakCell = [...corridorEdgeDensityMaxCell, config.steps];
     }
+    const fieldEdge = measureFieldEdgeDensity(densityRead, config);
+    const blockedFront = measureBlockedFrontDensity(densityRead, blockedCells.mask, blockedCells.count, config);
     const advectionShare = percentageUnsigned64(advectionMoved, totalMoved);
     const sourceOutflowTotal = unsigned64ToSafeInteger(sourceOutflow, "sourceOutflow");
     const sigmaProfile = measureSigmaProfile(densityRead, config);
@@ -854,6 +905,14 @@ export function runSimulation({
       corridorEdgeDensityMean: corridorEdgeCellCount > 0 ? (corridorEdgeDensityTotal / corridorEdgeCellCount) | 0 : null,
       corridorEdgeDensityPeak,
       corridorEdgeDensityPeakCell,
+      fieldEdgeDensityMax: fieldEdge.maximum,
+      fieldEdgeDensityMaxCell: fieldEdge.maximumCell,
+      fieldEdgeDensityPeak,
+      fieldEdgeDensityPeakCell,
+      blockedFrontDensityMax: blockedFront.maximum,
+      blockedFrontDensityMaxCell: blockedFront.maximumCell,
+      blockedFrontDensityPeak,
+      blockedFrontDensityPeakCell,
       outsideCorridorCells,
     };
   }

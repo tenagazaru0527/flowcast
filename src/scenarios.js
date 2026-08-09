@@ -2,7 +2,7 @@ import { Q } from "./config.js";
 
 const point = (x, y) => [x * Q, y * Q];
 
-export const ENGINE_VERSION = "0.10.0";
+export const ENGINE_VERSION = "0.11.0";
 export const SCENARIO_ID = "poc-0-default";
 export const WIDE_SCENARIO_ID = "poc-1-wide";
 export const CANYON_SCENARIO_ID = "poc-2-canyon";
