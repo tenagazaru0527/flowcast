@@ -397,7 +397,7 @@ function proposeFlows(
   }
 }
 
-function applyCapacity(density, capacity, config, flows, incomingRequested) {
+function applyCapacity(density, capacity, config, flows, incomingRequested, outOfFieldByEdge) {
   let stagnation = 0;
   let outOfField = 0;
   const cellCount = density.length;
@@ -409,6 +409,11 @@ function applyCapacity(density, capacity, config, flows, incomingRequested) {
       const destination = neighborIndex(origin, direction, config.width, config.height);
       if (destination < 0) {
         outOfField = checkedAdd(outOfField, proposed, "step outOfField");
+        if (outOfFieldByEdge) {
+          const edgeNames = ["top", "right", "bottom", "left"];
+          const edge = edgeNames[direction];
+          outOfFieldByEdge[edge] = checkedAdd(outOfFieldByEdge[edge], proposed, `outOfFieldByEdge.${edge}`);
+        }
         continue;
       }
       const remaining = capacity[destination] - density[destination];
@@ -579,11 +584,14 @@ export function runSimulation({
   const capacityLimitedAmount = measure ? new Uint32Array(2) : null;
   const sourceOutflow = measure ? new Uint32Array(2) : null;
   const conductanceStats = measure ? { min: Q, cell: -1, step: -1, throttled: 0 } : null;
+  const outOfFieldByEdge = measure ? { left: 0, right: 0, top: 0, bottom: 0 } : null;
   const gapThroughput = measure ? gapMap.names.map(() => new Uint32Array(2)) : null;
   let sourcePositiveScoreDirections = 0;
   let sourcePositiveScoreDirectionsStep = -1;
   const maximumGuideMagnitude = measure ? guideMagnitudeMax(field) : 0;
   let outOfField = 0;
+  let corridorEdgeDensityPeak = 0;
+  let corridorEdgeDensityPeakCell = null;
   const injectionBase = (config.injectionPerStep / sourceIndices.length) | 0;
   const injectionRemainder = config.injectionPerStep - injectionBase * sourceIndices.length;
 
@@ -619,6 +627,10 @@ export function runSimulation({
           densityMaxExSourceStep = step;
           densityMaxExSourceSourceDistance = sourceDistance;
         }
+        if (field.distance[index] === config.corridorWidth && amount > corridorEdgeDensityPeak) {
+          corridorEdgeDensityPeak = amount;
+          corridorEdgeDensityPeakCell = [x, y, step];
+        }
       }
     }
 
@@ -644,6 +656,7 @@ export function runSimulation({
       config,
       flows,
       incomingRequested,
+      outOfFieldByEdge,
     );
     outOfField = checkedAdd(outOfField, outOfFieldThisStep, "outOfField");
     if (measure) {
@@ -763,6 +776,13 @@ export function runSimulation({
         }
       }
     }
+    if (outsideCorridorCells !== 0) {
+      throw new Error(`outsideCorridorCells invariant failed: ${outsideCorridorCells}`);
+    }
+    if (corridorEdgeDensityMax > corridorEdgeDensityPeak) {
+      corridorEdgeDensityPeak = corridorEdgeDensityMax;
+      corridorEdgeDensityPeakCell = [...corridorEdgeDensityMaxCell, config.steps];
+    }
     const advectionShare = percentageUnsigned64(advectionMoved, totalMoved);
     const sourceOutflowTotal = unsigned64ToSafeInteger(sourceOutflow, "sourceOutflow");
     const sigmaProfile = measureSigmaProfile(densityRead, config);
@@ -819,6 +839,7 @@ export function runSimulation({
       totalCompleted,
       totalInjected,
       outOfField,
+      outOfFieldByEdge,
       completionRatio: totalInjected > 0 ? ((totalCompleted * 100) / totalInjected) | 0 : 0,
       outOfFieldRatio: totalInjected > 0 ? ((outOfField * 100) / totalInjected) | 0 : 0,
       remainingRatio: totalInjected > 0 ? ((remainingAmount * 100) / totalInjected) | 0 : 0,
@@ -831,6 +852,8 @@ export function runSimulation({
       corridorEdgeDensityMax,
       corridorEdgeDensityMaxCell,
       corridorEdgeDensityMean: corridorEdgeCellCount > 0 ? (corridorEdgeDensityTotal / corridorEdgeCellCount) | 0 : null,
+      corridorEdgeDensityPeak,
+      corridorEdgeDensityPeakCell,
       outsideCorridorCells,
     };
   }

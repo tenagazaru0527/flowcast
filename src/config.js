@@ -28,8 +28,14 @@ export const DEFAULT_CONFIG = Object.freeze({
   restoreWeight: 0,
   congestionWeight: 0,
   congestionReference: 4 * Q,
-  corridorWidth: 128,
 });
+
+const FIXED_POINT_KEYS = Object.freeze([
+  "capacity", "guideLimit", "burnRadius", "injectionPerStep", "completionTarget",
+  "transferRate", "edgeFluxMax", "advectionWeight", "diffusionWeight", "reverseThreshold",
+  "reverseStrength", "reverseDamping", "reverseLimit", "restoreWeight", "congestionWeight",
+  "congestionReference",
+]);
 
 export function createConfig(overrides = {}) {
   const config = { ...DEFAULT_CONFIG, ...overrides };
@@ -63,9 +69,8 @@ export function createConfig(overrides = {}) {
       throw new TypeError(`${key} must be an integer`);
     }
   }
-  const fixedKeys = integerKeys.slice(2, -1);
-  for (let index = 0; index < fixedKeys.length; index += 1) {
-    const key = fixedKeys[index];
+  for (let index = 0; index < FIXED_POINT_KEYS.length; index += 1) {
+    const key = FIXED_POINT_KEYS[index];
     if (config[key] < 0 || config[key] > 128 * Q) {
       throw new RangeError(`${key} must be in Q16.16 range [0, 128]`);
     }

@@ -46,7 +46,7 @@ function parseInteger(value, label) {
 }
 
 function assertParameterName(name) {
-  if (!Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, name)) {
+  if (name !== "corridorWidth" && !Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, name)) {
     throw new RangeError(`unknown config parameter: ${name}`);
   }
   if (name === "steps") throw new RangeError("steps must remain 3600 during sweeps");

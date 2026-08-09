@@ -121,7 +121,7 @@ test("congestionWeight zero preserves every 0.8.0 scenario hash", () => {
   }
 });
 
-test("unlimited corridor preserves every 0.9.0 scenario hash", () => {
+test("default unlimited corridor preserves every 0.9.0 scenario hash", () => {
   const expected = {
     "poc-0-default": { straight: "4910305d", distributed: "e63ba5b1", detour: "9164f600" },
     "poc-1-wide": { straight: "f7606aa8", distributed: "97a13950", detour: "13073731" },
@@ -132,7 +132,7 @@ test("unlimited corridor preserves every 0.9.0 scenario hash", () => {
       const result = runSimulation({
         lines: scenario.inputs[inputName], source: scenario.source, sink: scenario.sink,
         blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
-        config: { corridorWidth: 128 },
+        config: {},
       });
       assert.equal(result.stateHash, expected[scenario.scenarioId][inputName], `${scenario.scenarioId}/${inputName}`);
     }
@@ -183,6 +183,8 @@ test("measurement instrumentation does not affect simulation results", () => {
   assert.equal(measured.measurements.coherenceLength, 55);
   assert.equal(measured.measurements.blockedCellCount, 0);
   assert.deepEqual(measured.measurements.gapThroughput, {});
+  assert.deepEqual(Object.keys(measured.measurements.outOfFieldByEdge).sort(), ["bottom", "left", "right", "top"]);
+  assert.equal(measured.measurements.outsideCorridorCells, 0);
 });
 
 test("single-cell source and sink arrays preserve 0.5.0 hashes", () => {
