@@ -340,6 +340,7 @@ function proposeFlows(
     for (let direction = 0; direction < 4; direction += 1) {
       const destination = neighborIndex(index, direction, config.width, config.height);
       if (destination >= 0 && blockedMask[destination] !== 0) continue;
+      if (destination >= 0 && (field.distance[destination] < 0 || field.distance[destination] > config.corridorWidth)) continue;
       const guideComponent = directionalComponent(guideX, guideY, direction);
       const destinationDensityForConductance = destination < 0 ? 0 : density[destination];
       const occupancyRaw = ((destinationDensityForConductance * Q) / config.congestionReference) | 0;
@@ -396,7 +397,7 @@ function proposeFlows(
   }
 }
 
-function applyCapacity(density, capacity, config, flows, incomingRequested) {
+function applyCapacity(density, capacity, config, flows, incomingRequested, outOfFieldByEdge) {
   let stagnation = 0;
   let outOfField = 0;
   const cellCount = density.length;
@@ -408,6 +409,11 @@ function applyCapacity(density, capacity, config, flows, incomingRequested) {
       const destination = neighborIndex(origin, direction, config.width, config.height);
       if (destination < 0) {
         outOfField = checkedAdd(outOfField, proposed, "step outOfField");
+        if (outOfFieldByEdge) {
+          const edgeNames = ["top", "right", "bottom", "left"];
+          const edge = edgeNames[direction];
+          outOfFieldByEdge[edge] = checkedAdd(outOfFieldByEdge[edge], proposed, `outOfFieldByEdge.${edge}`);
+        }
         continue;
       }
       const remaining = capacity[destination] - density[destination];
@@ -537,6 +543,7 @@ export function runSimulation({
   const restoreField = buildRestoreField(field.lineMask, blockedCells.mask, config);
   field.restoreX = restoreField.restoreX;
   field.restoreY = restoreField.restoreY;
+  field.distance = restoreField.distance;
   const cellCount = config.width * config.height;
   let densityRead = new Int32Array(cellCount);
   let densityWrite = new Int32Array(cellCount);
@@ -577,11 +584,14 @@ export function runSimulation({
   const capacityLimitedAmount = measure ? new Uint32Array(2) : null;
   const sourceOutflow = measure ? new Uint32Array(2) : null;
   const conductanceStats = measure ? { min: Q, cell: -1, step: -1, throttled: 0 } : null;
+  const outOfFieldByEdge = measure ? { left: 0, right: 0, top: 0, bottom: 0 } : null;
   const gapThroughput = measure ? gapMap.names.map(() => new Uint32Array(2)) : null;
   let sourcePositiveScoreDirections = 0;
   let sourcePositiveScoreDirectionsStep = -1;
   const maximumGuideMagnitude = measure ? guideMagnitudeMax(field) : 0;
   let outOfField = 0;
+  let corridorEdgeDensityPeak = 0;
+  let corridorEdgeDensityPeakCell = null;
   const injectionBase = (config.injectionPerStep / sourceIndices.length) | 0;
   const injectionRemainder = config.injectionPerStep - injectionBase * sourceIndices.length;
 
@@ -617,6 +627,10 @@ export function runSimulation({
           densityMaxExSourceStep = step;
           densityMaxExSourceSourceDistance = sourceDistance;
         }
+        if (field.distance[index] === config.corridorWidth && amount > corridorEdgeDensityPeak) {
+          corridorEdgeDensityPeak = amount;
+          corridorEdgeDensityPeakCell = [x, y, step];
+        }
       }
     }
 
@@ -642,6 +656,7 @@ export function runSimulation({
       config,
       flows,
       incomingRequested,
+      outOfFieldByEdge,
     );
     outOfField = checkedAdd(outOfField, outOfFieldThisStep, "outOfField");
     if (measure) {
@@ -741,6 +756,33 @@ export function runSimulation({
     if (accountedAmount !== totalInjected) {
       throw new Error(`quantity conservation failed: injected=${totalInjected}, accounted=${accountedAmount}`);
     }
+    let corridorEdgeDensityMax = 0;
+    let corridorEdgeDensityMaxCell = null;
+    let corridorEdgeDensityTotal = 0;
+    let corridorEdgeCellCount = 0;
+    let outsideCorridorCells = 0;
+    for (let index = 0; index < densityRead.length; index += 1) {
+      const amount = densityRead[index];
+      if (field.distance[index] < 0 || field.distance[index] > config.corridorWidth) {
+        if (amount > 0) outsideCorridorCells += 1;
+        continue;
+      }
+      if (field.distance[index] === config.corridorWidth) {
+        corridorEdgeCellCount += 1;
+        corridorEdgeDensityTotal = checkedAdd(corridorEdgeDensityTotal, amount, "corridor edge density");
+        if (amount > corridorEdgeDensityMax) {
+          corridorEdgeDensityMax = amount;
+          corridorEdgeDensityMaxCell = [index % config.width, (index / config.width) | 0];
+        }
+      }
+    }
+    if (outsideCorridorCells !== 0) {
+      throw new Error(`outsideCorridorCells invariant failed: ${outsideCorridorCells}`);
+    }
+    if (corridorEdgeDensityMax > corridorEdgeDensityPeak) {
+      corridorEdgeDensityPeak = corridorEdgeDensityMax;
+      corridorEdgeDensityPeakCell = [...corridorEdgeDensityMaxCell, config.steps];
+    }
     const advectionShare = percentageUnsigned64(advectionMoved, totalMoved);
     const sourceOutflowTotal = unsigned64ToSafeInteger(sourceOutflow, "sourceOutflow");
     const sigmaProfile = measureSigmaProfile(densityRead, config);
@@ -797,6 +839,7 @@ export function runSimulation({
       totalCompleted,
       totalInjected,
       outOfField,
+      outOfFieldByEdge,
       completionRatio: totalInjected > 0 ? ((totalCompleted * 100) / totalInjected) | 0 : 0,
       outOfFieldRatio: totalInjected > 0 ? ((outOfField * 100) / totalInjected) | 0 : 0,
       remainingRatio: totalInjected > 0 ? ((remainingAmount * 100) / totalInjected) | 0 : 0,
@@ -806,6 +849,12 @@ export function runSimulation({
       conductanceMin: conductanceStats.min,
       conductanceMinCell: conductanceStats.cell < 0 ? null : [conductanceStats.cell % config.width, (conductanceStats.cell / config.width) | 0, conductanceStats.step],
       throttledEdgeCount: conductanceStats.throttled,
+      corridorEdgeDensityMax,
+      corridorEdgeDensityMaxCell,
+      corridorEdgeDensityMean: corridorEdgeCellCount > 0 ? (corridorEdgeDensityTotal / corridorEdgeCellCount) | 0 : null,
+      corridorEdgeDensityPeak,
+      corridorEdgeDensityPeakCell,
+      outsideCorridorCells,
     };
   }
   return result;

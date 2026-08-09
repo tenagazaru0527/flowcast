@@ -46,7 +46,7 @@ function parseInteger(value, label) {
 }
 
 function assertParameterName(name) {
-  if (!Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, name)) {
+  if (name !== "corridorWidth" && !Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, name)) {
     throw new RangeError(`unknown config parameter: ${name}`);
   }
   if (name === "steps") throw new RangeError("steps must remain 3600 during sweeps");
@@ -252,15 +252,27 @@ export function serializeJsonLines(results) {
   return `${results.map((result) => JSON.stringify(result)).join("\n")}\n`;
 }
 
+function flattenMeasurements(measurements) {
+  const flat = {};
+  for (const name of Object.keys(measurements)) {
+    const value = measurements[name];
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      for (const child of Object.keys(value).sort()) flat[`${name}.${child}`] = value[child];
+    } else flat[name] = value;
+  }
+  return flat;
+}
+
 export function serializeCsv(results) {
   const parameterNames = [...new Set(results.flatMap((result) => Object.keys(result.parameters)))].sort();
-  const measurementNames = [...new Set(results.flatMap((result) => Object.keys(result.measurements)))].sort();
+  const flattened = results.map((result) => flattenMeasurements(result.measurements));
+  const measurementNames = [...new Set(flattened.flatMap((measurements) => Object.keys(measurements)))].sort();
   const headers = ["pointIndex", "mode", "runKind", "inputName", "perturbationPercent", "perturbationIndex", "engineVersion", "stateHash",
     ...parameterNames.map((name) => `param.${name}`), ...measurementNames.map((name) => `measurement.${name}`),
     "sensitivityBasisPoints", "criterion4Dominated", "criterion2MedianTwiceBasisPoints", "criterion3Median3TwiceBasisPoints", "criterion3Median10TwiceBasisPoints"];
-  const rows = results.map((result) => [result.pointIndex, result.mode, result.runKind, result.inputName, result.perturbationPercent,
+  const rows = results.map((result, index) => [result.pointIndex, result.mode, result.runKind, result.inputName, result.perturbationPercent,
     result.perturbationIndex, result.engineVersion, result.stateHash, ...parameterNames.map((name) => result.parameters[name]),
-    ...measurementNames.map((name) => result.measurements[name]), result.sensitivityBasisPoints, result.criterion4Dominated, result.criterion2MedianTwiceBasisPoints,
+    ...measurementNames.map((name) => flattened[index][name]), result.sensitivityBasisPoints, result.criterion4Dominated, result.criterion2MedianTwiceBasisPoints,
     result.criterion3Median3TwiceBasisPoints, result.criterion3Median10TwiceBasisPoints].map(csvValue).join(","));
   return `${headers.map(csvValue).join(",")}\n${rows.join("\n")}\n`;
 }
