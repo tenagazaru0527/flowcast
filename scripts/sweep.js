@@ -61,7 +61,12 @@ function assertPoint(point, index) {
   const checked = {};
   for (const name of names) {
     if (name !== "gapWidth") assertParameterName(name);
-    checked[name] = parseInteger(point[name], `grid point ${index}.${name}`);
+    if (name === "corridorBlocksOutOfField") {
+      if (typeof point[name] !== "boolean") throw new TypeError(`grid point ${index}.${name} must be a boolean`);
+      checked[name] = point[name];
+    } else {
+      checked[name] = parseInteger(point[name], `grid point ${index}.${name}`);
+    }
   }
   return checked;
 }

@@ -139,6 +139,23 @@ test("default unlimited corridor preserves every 0.9.0 scenario hash", () => {
   }
 });
 
+test("unspecified corridorBlocksOutOfField preserves every 0.10.0 scenario hash", () => {
+  const expected = {
+    "poc-0-default": { straight: "4910305d", distributed: "e63ba5b1", detour: "9164f600" },
+    "poc-1-wide": { straight: "f7606aa8", distributed: "97a13950", detour: "13073731" },
+    "poc-2-canyon": { straight: "e3ddaebc", distributed: "6e03aff9", detour: "ae3a98ad" },
+  };
+  for (const scenario of SCENARIOS) {
+    for (const inputName of Object.keys(expected[scenario.scenarioId])) {
+      const result = runSimulation({
+        lines: scenario.inputs[inputName], source: scenario.source, sink: scenario.sink,
+        blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED, config: {},
+      });
+      assert.equal(result.stateHash, expected[scenario.scenarioId][inputName], `${scenario.scenarioId}/${inputName}`);
+    }
+  }
+});
+
 test("default edge flux limit is at least the current theoretical transfer budget", () => {
   const config = createConfig();
   assert.ok(config.edgeFluxMax >= mulQ(config.capacity, config.transferRate));
@@ -185,6 +202,27 @@ test("measurement instrumentation does not affect simulation results", () => {
   assert.deepEqual(measured.measurements.gapThroughput, {});
   assert.deepEqual(Object.keys(measured.measurements.outOfFieldByEdge).sort(), ["bottom", "left", "right", "top"]);
   assert.equal(measured.measurements.outsideCorridorCells, 0);
+  assert.ok(Number.isInteger(measured.measurements.fieldEdgeDensityMax));
+  assert.ok(Number.isInteger(measured.measurements.fieldEdgeDensityPeak));
+  assert.equal(measured.measurements.fieldEdgeDensityMaxCell.length, 2);
+  assert.equal(measured.measurements.fieldEdgeDensityPeakCell.length, 3);
+  assert.equal(measured.measurements.blockedFrontDensityMax, null);
+  assert.equal(measured.measurements.blockedFrontDensityPeak, null);
+});
+
+test("corridorBlocksOutOfField is boolean and structurally prevents exterior transfer", () => {
+  assert.throws(() => createConfig({ corridorBlocksOutOfField: 1 }), /must be a boolean/);
+  const scenario = createCanyonScenario(1);
+  for (const inputName of ["straight", "distributed", "detour"]) {
+    const result = runSimulation({
+      lines: scenario.inputs[inputName], source: scenario.source, sink: scenario.sink,
+      blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
+      config: { corridorWidth: 8, restoreWeight: 0, congestionWeight: 0, congestionReference: 2_048, edgeFluxMax: 512, corridorBlocksOutOfField: true },
+      measure: true,
+    });
+    assert.equal(result.measurements.outOfField, 0, inputName);
+    assert.deepEqual(result.measurements.outOfFieldByEdge, { left: 0, right: 0, top: 0, bottom: 0 }, inputName);
+  }
 });
 
 test("single-cell source and sink arrays preserve 0.5.0 hashes", () => {

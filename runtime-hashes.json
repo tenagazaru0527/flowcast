@@ -447,6 +447,54 @@
           }
         }
       ]
+    },
+    {
+      "engineVersion": "0.11.0",
+      "scenarioId": "poc-0-default",
+      "change": "optional corridor exclusion of out-of-field transfers with a false compatibility default",
+      "runtimes": [
+        {
+          "node": "v20.20.2",
+          "v8": "11.3.244.8-node.38",
+          "stateHashes": {
+            "straight": "4910305d",
+            "distributed": "e63ba5b1",
+            "detour": "9164f600"
+          }
+        }
+      ]
+    },
+    {
+      "engineVersion": "0.11.0",
+      "scenarioId": "poc-1-wide",
+      "change": "optional corridor exclusion of out-of-field transfers with a false compatibility default",
+      "runtimes": [
+        {
+          "node": "v20.20.2",
+          "v8": "11.3.244.8-node.38",
+          "stateHashes": {
+            "straight": "f7606aa8",
+            "distributed": "97a13950",
+            "detour": "13073731"
+          }
+        }
+      ]
+    },
+    {
+      "engineVersion": "0.11.0",
+      "scenarioId": "poc-2-canyon",
+      "change": "optional corridor exclusion of out-of-field transfers with a false compatibility default",
+      "runtimes": [
+        {
+          "node": "v20.20.2",
+          "v8": "11.3.244.8-node.38",
+          "stateHashes": {
+            "straight": "e3ddaebc",
+            "distributed": "6e03aff9",
+            "detour": "ae3a98ad"
+          }
+        }
+      ]
     }
   ]
 }

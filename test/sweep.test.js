@@ -18,6 +18,16 @@ test("multi-dimensional grid preserves declared Cartesian order", () => {
   ]);
 });
 
+test("sweep grid accepts corridorBlocksOutOfField only as a boolean", () => {
+  assert.deepEqual(parseGridDocument({ points: [{ corridorBlocksOutOfField: true, corridorWidth: 2 }] }), [
+    { corridorBlocksOutOfField: true, corridorWidth: 2 },
+  ]);
+  assert.throws(
+    () => parseGridDocument({ points: [{ corridorBlocksOutOfField: 1 }] }),
+    /must be a boolean/,
+  );
+});
+
 test("modes have fixed counts and workers 1 and 4 agree", async () => {
   const points = [{ capacity: 65_536 }];
   const sequential = await runSweep({ points, mode: "A", workers: 1 });

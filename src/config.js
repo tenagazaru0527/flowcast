@@ -28,6 +28,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   restoreWeight: 0,
   congestionWeight: 0,
   congestionReference: 4 * Q,
+  corridorBlocksOutOfField: false,
 });
 
 const FIXED_POINT_KEYS = Object.freeze([
@@ -86,6 +87,9 @@ export function createConfig(overrides = {}) {
   }
   if (config.corridorWidth < 0 || config.corridorWidth > config.width + config.height) {
     throw new RangeError("corridorWidth must be an integer cell distance in [0, width + height]");
+  }
+  if (typeof config.corridorBlocksOutOfField !== "boolean") {
+    throw new TypeError("corridorBlocksOutOfField must be a boolean");
   }
   if (config.injectionPerStep * config.steps > 2_147_483_647) {
     throw new RangeError("total configured injection must fit Int32");
