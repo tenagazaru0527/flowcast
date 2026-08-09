@@ -5,31 +5,33 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>flowcast density debug viewer</title>
     <style>
-      :root {
-        color-scheme: dark;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        background: #080c14;
-        color: #dbe7ff;
-      }
+      :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #080c14; color: #dbe7ff; }
       body { margin: 0; padding: 16px; }
       h1 { margin: 0 0 12px; font-size: 18px; }
       .layout { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
-      canvas { width: 640px; height: 640px; border: 1px solid #52617a; image-rendering: pixelated; }
-      .panel { width: min(420px, 100%); display: grid; gap: 12px; }
+      canvas { width: 640px; height: 640px; border: 1px solid #52617a; image-rendering: pixelated; touch-action: none; }
+      .panel { width: min(500px, 100%); display: grid; gap: 12px; }
       fieldset { border: 1px solid #52617a; display: grid; gap: 8px; }
-      label { display: grid; grid-template-columns: 150px 1fr; gap: 8px; align-items: center; }
+      label { display: grid; grid-template-columns: 210px 1fr; gap: 8px; align-items: center; }
       input, select, button { font: inherit; color: inherit; background: #111a29; border: 1px solid #52617a; padding: 6px; }
+      input[type="checkbox"] { justify-self: start; }
       input[type="range"] { padding: 0; width: 100%; }
-      .step-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      button:disabled { color: #71809a; cursor: not-allowed; }
+      .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+      .buttons > * { flex: 1 1 auto; }
+      .line-list { display: flex; flex-wrap: wrap; gap: 6px; }
+      .line-list button[aria-pressed="true"] { outline: 2px solid #fff; }
       dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; }
       dt { color: #91a7c8; }
-      dd { margin: 0; }
+      dd { margin: 0; overflow-wrap: anywhere; }
       .legend { height: 16px; background: linear-gradient(90deg, hsl(240 90% 15%), hsl(180 90% 37%), hsl(60 90% 48%), hsl(0 90% 60%)); }
       .markers { display: flex; gap: 16px; font-size: 12px; }
       .marker::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 5px; border: 2px solid currentColor; vertical-align: -2px; }
       .source { color: #ff4fd8; }
       .sink { color: #62ff7a; }
-      #status[data-error="true"] { color: #ff7b7b; }
+      #status[data-error="true"], #line-validation[data-error="true"] { color: #ff7b7b; }
+      #warning { color: #ffd166; }
+      .hint { color: #91a7c8; font-size: 12px; }
     </style>
   </head>
   <body>
@@ -38,43 +40,105 @@
       <canvas id="density" width="640" height="640" aria-label="64×64 density heatmap"></canvas>
       <div class="panel">
         <fieldset>
-          <legend>simulation</legend>
-          <label>入力
-            <select id="input-name">
-              <option value="straight">直進</option>
-              <option value="distributed">分散</option>
-              <option value="detour">迂回</option>
+          <legend>scenario</legend>
+          <label>シナリオ
+            <select id="scenario-id">
+              <option value="poc-0-default">poc-0-default</option>
+              <option value="poc-1-wide">poc-1-wide</option>
+              <option value="poc-2-canyon">poc-2-canyon</option>
             </select>
           </label>
-          <label>edgeFluxMax <input id="edge-flux-max" type="number" min="0" step="1" value="1024"></label>
-          <label>advectionWeight <input id="advection-weight" type="number" min="0" step="1" value="65536"></label>
-          <label>diffusionWeight <input id="diffusion-weight" type="number" min="0" step="1" value="16384"></label>
-          <button id="apply" type="button">入力・パラメータを適用</button>
+          <label>gapWidth
+            <select id="gap-width">
+              <option>1</option><option>3</option><option>5</option><option>9</option><option>63</option>
+            </select>
+          </label>
         </fieldset>
+
         <fieldset>
-          <legend>step</legend>
-          <input id="step-range" type="range" min="0" max="3600" step="50" value="3600">
-          <label>任意step <input id="step-number" type="number" min="0" max="3600" step="1" value="3600"></label>
-          <div class="step-buttons">
-            <button id="previous" type="button">−50</button>
-            <button id="next" type="button">+50</button>
-          </div>
+          <legend>parameters</legend>
+          <label>corridorWidth <input id="corridor-width" type="number" min="0" max="128" step="1"></label>
+          <label>corridorBlocksOutOfField <input id="corridor-blocks-out-of-field" type="checkbox"></label>
+          <label>restoreWeight <input id="restore-weight" type="number" min="0" step="1"></label>
+          <label>congestionWeight <input id="congestion-weight" type="number" min="0" step="1"></label>
+          <label>congestionReference <input id="congestion-reference" type="number" min="1" step="1"></label>
+          <label>edgeFluxMax <input id="edge-flux-max" type="number" min="0" step="1"></label>
+          <label>advectionWeight <input id="advection-weight" type="number" min="0" step="1"></label>
+          <label>diffusionWeight <input id="diffusion-weight" type="number" min="0" step="1"></label>
+          <label>steps <input id="steps" type="number" min="1" step="1"></label>
+          <label>seed <input id="seed" type="number" step="1"></label>
         </fieldset>
+
+        <fieldset>
+          <legend>lines</legend>
+          <div id="line-list" class="line-list"></div>
+          <div class="buttons">
+            <button id="add-line" type="button">線を追加</button>
+            <button id="remove-line" type="button">選択線を削除</button>
+            <button id="undo-point" type="button">末尾点を取り消し</button>
+            <button id="clear-lines" type="button">全消去</button>
+          </div>
+          <label>プリセット
+            <select id="preset">
+              <option value="straight">straight</option>
+              <option value="distributed" selected>distributed</option>
+              <option value="detour">detour</option>
+            </select>
+          </label>
+          <button id="load-preset" type="button">プリセット読み込み</button>
+          <div class="hint">キャンバスをクリックして点を追加。制御点はドラッグで移動。</div>
+          <div id="line-validation" data-error="false"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>overlays</legend>
+          <label>障害物 <input id="show-blocked" type="checkbox" checked></label>
+          <label>線 <input id="show-lines" type="checkbox" checked></label>
+          <label>回廊の縁 <input id="show-corridor" type="checkbox" checked></label>
+          <label>場の縁 <input id="show-field-edge" type="checkbox" checked></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>run</legend>
+          <div class="buttons">
+            <button id="run-final" type="button">最終状態を実行</button>
+            <button id="build-playback" type="button">再生フレームを生成</button>
+            <button id="play" type="button" disabled>再生</button>
+          </div>
+          <input id="frame-range" type="range" min="0" max="0" value="0" disabled>
+          <div id="frame-label">最終状態モード</div>
+        </fieldset>
+
+        <fieldset>
+          <legend>save / load</legend>
+          <div class="buttons">
+            <button id="download" type="button">JSONをダウンロード</button>
+            <button id="copy-url" type="button">共有URLをコピー</button>
+            <label>JSONを読み込む <input id="load-json" type="file" accept="application/json,.json"></label>
+          </div>
+          <div id="warning"></div>
+        </fieldset>
+
         <div class="legend" aria-label="density color scale"></div>
-        <div>0 ← log(1 + density) → 現step最大</div>
+        <div>0 ← log(1 + density) → 表示系列の最大</div>
         <div class="markers">
           <span class="marker source">source</span>
           <span class="marker sink">sink</span>
         </div>
         <dl>
-          <dt>step</dt><dd id="metric-step">-</dd>
-          <dt>densityMax</dt><dd id="metric-density-max">-</dd>
-          <dt>completed</dt><dd id="metric-completed">-</dd>
-          <dt>outOfField</dt><dd id="metric-out-of-field">-</dd>
-          <dt>stateHash</dt><dd id="metric-hash">-</dd>
-          <dt>cache</dt><dd id="metric-cache">-</dd>
+          <dt>step</dt><dd id="metric-step">—</dd>
+          <dt>completionStep</dt><dd id="metric-completion-step">—</dd>
+          <dt>totalCompleted / ratio</dt><dd id="metric-completed">—</dd>
+          <dt>outOfField / remaining</dt><dd id="metric-loss">—</dd>
+          <dt>gap central / detour</dt><dd id="metric-gap">—</dd>
+          <dt>中央ルート比率</dt><dd id="metric-central-ratio">—</dd>
+          <dt>densityMaxExSource</dt><dd id="metric-density-max">—</dd>
+          <dt>blockedFrontDensityMax</dt><dd id="metric-blocked-front">—</dd>
+          <dt>fieldEdgeDensityMax</dt><dd id="metric-field-edge">—</dd>
+          <dt>occupiedCellsPeak</dt><dd id="metric-occupied">—</dd>
+          <dt>stateHash</dt><dd id="metric-hash">—</dd>
         </dl>
-        <div id="status" role="status">待機中</div>
+        <div id="status" role="status" data-error="false">待機中</div>
       </div>
     </div>
     <script type="module" src="./viewer.js"></script>
