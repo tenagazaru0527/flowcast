@@ -3,7 +3,9 @@ import { buildRestoreField, burnLines } from "../src/lines.js";
 import { runSimulation } from "../src/simulation.js";
 import { createCanyonScenario, DEFAULT_SEED, ENGINE_VERSION, SCENARIOS } from "../src/scenarios.js";
 
-const FORMAT_VERSION = 1;
+const FORMAT_VERSION = 2;
+const MAX_STEPS = 20_000;
+const MAX_URL_HASH_LENGTH = 8_000;
 const CELL_SIZE = 10;
 const FRAME_STEPS = Object.freeze([
   25, 50, 75, 100, 150, 200, 300, 400, 550, 700, 900, 1_100,
@@ -19,16 +21,13 @@ const playbackCache = new Map();
 let lines = [];
 let selectedLine = 0;
 let dragging = null;
+let tracing = null;
 let displayed = null;
 let playback = null;
 let playTimer = null;
 
 function cloneLines(value) {
   return value.map((line) => line.map(([x, y]) => [x, y]));
-}
-
-function qLinesToCells(value) {
-  return value.map((line) => line.map(([x, y]) => [x / Q, y / Q]));
 }
 
 function cellLinesToQ(value) {
@@ -49,6 +48,9 @@ function scenarioFor(scenarioId = $("#scenario-id").value, gapWidth = Number($("
 }
 
 function currentConfig(steps = integerValue("#steps", "steps")) {
+  if (steps < 1 || steps > MAX_STEPS) {
+    throw new RangeError(`steps must be an integer in [1, ${MAX_STEPS}]`);
+  }
   return createConfig({
     corridorWidth: integerValue("#corridor-width", "corridorWidth"),
     corridorBlocksOutOfField: $("#corridor-blocks-out-of-field").checked,
@@ -74,7 +76,7 @@ function validateLines(candidate = lines) {
       if (!Array.isArray(point) || point.length !== 2 || !point.every(Number.isInteger)) {
         throw new TypeError("control point coordinates must be integers");
       }
-      if (point[0] < 0 || point[0] >= DEFAULT_CONFIG.width || point[1] < 0 || point[1] >= DEFAULT_CONFIG.height) {
+      if (point[0] < 0 || point[0] >= DEFAULT_CONFIG.width * Q || point[1] < 0 || point[1] >= DEFAULT_CONFIG.height * Q) {
         throw new RangeError("control point is outside the field");
       }
     }
@@ -107,7 +109,7 @@ function requestFor(steps = integerValue("#steps", "steps")) {
   validateLines();
   const scenario = scenarioFor();
   return {
-    lines: cellLinesToQ(lines),
+    lines: cloneLines(lines),
     source: scenario.source,
     sink: scenario.sink,
     seed: integerValue("#seed", "seed"),
@@ -129,7 +131,20 @@ function setStatus(message, error = false) {
 
 function updateUrl() {
   const hash = `state=${encodeURIComponent(JSON.stringify(stateObject()))}`;
+  const hashLength = hash.length + 1;
+  $("#url-length").textContent = `URLハッシュ: ${hashLength}文字`;
+  if (hashLength > MAX_URL_HASH_LENGTH) {
+    const cleanUrl = new URL(location.href);
+    cleanUrl.hash = "";
+    history.replaceState(null, "", cleanUrl);
+    $("#copy-url").disabled = true;
+    $("#url-warning").textContent = "制御点が多いため URL 共有できません。JSON で保存してください";
+    return false;
+  }
   history.replaceState(null, "", `${location.pathname}${location.search}#${hash}`);
+  $("#copy-url").disabled = false;
+  $("#url-warning").textContent = "";
+  return true;
 }
 
 function updateValidation() {
@@ -166,6 +181,8 @@ function renderLineList() {
     });
     container.append(button);
   });
+  const total = lines.reduce((sum, points) => sum + points.length, 0);
+  $("#control-point-count").textContent = `制御点: 合計 ${total}点`;
   $("#add-line").disabled = lines.length >= 5;
   $("#remove-line").disabled = lines.length === 0;
   $("#undo-point").disabled = !lines[selectedLine]?.length;
@@ -197,8 +214,8 @@ function drawLines() {
     context.lineWidth = lineIndex === selectedLine ? 3 : 2;
     context.beginPath();
     points.forEach(([x, y], pointIndex) => {
-      const pixelX = x * CELL_SIZE + CELL_SIZE / 2;
-      const pixelY = y * CELL_SIZE + CELL_SIZE / 2;
+      const pixelX = (x * CELL_SIZE) / Q + CELL_SIZE / 2;
+      const pixelY = (y * CELL_SIZE) / Q + CELL_SIZE / 2;
       if (pointIndex === 0) context.moveTo(pixelX, pixelY);
       else context.lineTo(pixelX, pixelY);
     });
@@ -206,7 +223,7 @@ function drawLines() {
     points.forEach(([x, y]) => {
       context.fillStyle = LINE_COLORS[lineIndex];
       context.beginPath();
-      context.arc(x * CELL_SIZE + CELL_SIZE / 2, y * CELL_SIZE + CELL_SIZE / 2, lineIndex === selectedLine ? 4 : 3, 0, Math.PI * 2);
+      context.arc((x * CELL_SIZE) / Q + CELL_SIZE / 2, (y * CELL_SIZE) / Q + CELL_SIZE / 2, lineIndex === selectedLine ? 4 : 3, 0, Math.PI * 2);
       context.fill();
     });
   });
@@ -220,7 +237,7 @@ function geometry() {
   let corridorDistance = null;
   try {
     validateLines();
-    const field = burnLines(cellLinesToQ(lines), config);
+    const field = burnLines(lines, config);
     corridorDistance = buildRestoreField(field.lineMask, blockedMask, config).distance;
   } catch {
     // Invalid lines remain visible and execution stays disabled.
@@ -303,14 +320,14 @@ function drawDisplayed() {
   showMetrics(result, displayed?.step);
 }
 
-function stateChanged() {
+function stateChanged(updateShare = true) {
   stopPlaying();
   playback = null;
   $("#frame-range").disabled = true;
   $("#play").disabled = true;
   $("#frame-label").textContent = "最終状態モード";
   updateValidation();
-  updateUrl();
+  if (updateShare) updateUrl();
   drawDisplayed();
 }
 
@@ -411,7 +428,7 @@ function togglePlayback() {
 
 function loadPreset(name = $("#preset").value) {
   const scenario = scenarioFor();
-  lines = qLinesToCells(scenario.inputs[name]);
+  lines = cloneLines(scenario.inputs[name]);
   selectedLine = 0;
   renderLineList();
   stateChanged();
@@ -419,9 +436,12 @@ function loadPreset(name = $("#preset").value) {
 
 function applyState(replay) {
   if (replay === null || typeof replay !== "object" || Array.isArray(replay)) throw new TypeError("viewer state must be an object");
-  if (replay.formatVersion !== FORMAT_VERSION) throw new RangeError(`unsupported formatVersion: ${replay.formatVersion}`);
+  if (replay.formatVersion !== 1 && replay.formatVersion !== FORMAT_VERSION) {
+    throw new RangeError(`unsupported formatVersion: ${replay.formatVersion}`);
+  }
   scenarioFor(replay.scenarioId, replay.gapWidth);
-  validateLines(replay.lines);
+  const replayLines = replay.formatVersion === 1 ? cellLinesToQ(replay.lines) : cloneLines(replay.lines);
+  validateLines(replayLines);
   $("#scenario-id").value = replay.scenarioId;
   $("#gap-width").value = String(replay.gapWidth);
   const selectors = {
@@ -432,7 +452,7 @@ function applyState(replay) {
   for (const [key, selector] of Object.entries(selectors)) $(selector).value = String(replay.parameters[key]);
   $("#corridor-blocks-out-of-field").checked = replay.parameters.corridorBlocksOutOfField;
   $("#seed").value = String(replay.seed);
-  lines = cloneLines(replay.lines);
+  lines = replayLines;
   selectedLine = 0;
   currentConfig();
   integerValue("#seed", "seed");
@@ -451,10 +471,12 @@ function downloadState() {
   URL.revokeObjectURL(link.href);
 }
 
-function canvasCell(event) {
+function canvasPoint(event) {
   const bounds = canvas.getBoundingClientRect();
-  const x = Math.max(0, Math.min(63, Math.floor(((event.clientX - bounds.left) * canvas.width) / bounds.width / CELL_SIZE)));
-  const y = Math.max(0, Math.min(63, Math.floor(((event.clientY - bounds.top) * canvas.height) / bounds.height / CELL_SIZE)));
+  const fieldX = (((event.clientX - bounds.left) * canvas.width) / bounds.width / CELL_SIZE - 0.5) * Q;
+  const fieldY = (((event.clientY - bounds.top) * canvas.height) / bounds.height / CELL_SIZE - 0.5) * Q;
+  const x = Math.max(0, Math.min(DEFAULT_CONFIG.width * Q - 1, Math.round(fieldX)));
+  const y = Math.max(0, Math.min(DEFAULT_CONFIG.height * Q - 1, Math.round(fieldY)));
   return [x, y];
 }
 
@@ -462,32 +484,54 @@ function findPoint([x, y]) {
   for (let lineIndex = lines.length - 1; lineIndex >= 0; lineIndex -= 1) {
     for (let pointIndex = lines[lineIndex].length - 1; pointIndex >= 0; pointIndex -= 1) {
       const [pointX, pointY] = lines[lineIndex][pointIndex];
-      if (Math.abs(pointX - x) <= 1 && Math.abs(pointY - y) <= 1) return { lineIndex, pointIndex };
+      if (Math.abs(pointX - x) <= Q && Math.abs(pointY - y) <= Q) return { lineIndex, pointIndex };
     }
   }
   return null;
 }
 
 canvas.addEventListener("pointerdown", (event) => {
-  const cell = canvasCell(event);
-  const found = findPoint(cell);
+  const point = canvasPoint(event);
+  const found = findPoint(point);
   if (found) {
     dragging = found;
     selectedLine = found.lineIndex;
     canvas.setPointerCapture(event.pointerId);
   } else if (lines[selectedLine]) {
-    lines[selectedLine].push(cell);
+    if ($("#drawing-mode").value === "trace") {
+      lines[selectedLine] = [point];
+      tracing = { lineIndex: selectedLine, pointerId: event.pointerId };
+      canvas.setPointerCapture(event.pointerId);
+    } else {
+      lines[selectedLine].push(point);
+    }
   }
+  renderLineList();
+  stateChanged(false);
+});
+canvas.addEventListener("pointermove", (event) => {
+  const point = canvasPoint(event);
+  if (dragging) {
+    lines[dragging.lineIndex][dragging.pointIndex] = point;
+  } else if (tracing && tracing.pointerId === event.pointerId) {
+    const points = lines[tracing.lineIndex];
+    const previous = points[points.length - 1];
+    const threshold = Number($("#trace-spacing").value) * Q;
+    if (threshold > 0 && Math.hypot(point[0] - previous[0], point[1] - previous[1]) < threshold) return;
+    if (threshold === 0 && point[0] === previous[0] && point[1] === previous[1]) return;
+    points.push(point);
+  } else {
+    return;
+  }
+  stateChanged(false);
+});
+canvas.addEventListener("pointerup", () => {
+  dragging = null;
+  tracing = null;
   renderLineList();
   stateChanged();
 });
-canvas.addEventListener("pointermove", (event) => {
-  if (!dragging) return;
-  lines[dragging.lineIndex][dragging.pointIndex] = canvasCell(event);
-  stateChanged();
-});
-canvas.addEventListener("pointerup", () => { dragging = null; renderLineList(); });
-canvas.addEventListener("pointercancel", () => { dragging = null; });
+canvas.addEventListener("pointercancel", () => { dragging = null; tracing = null; });
 
 $("#add-line").addEventListener("click", () => {
   if (lines.length >= 5) return;
@@ -568,7 +612,7 @@ function initializeDefaults() {
   $("#steps").value = "3600";
   $("#seed").value = String(DEFAULT_SEED);
   $("#gap-width").disabled = true;
-  lines = qLinesToCells(scenarioFor().inputs.distributed);
+  lines = cloneLines(scenarioFor().inputs.distributed);
   if (location.hash.startsWith("#state=")) {
     try {
       applyState(JSON.parse(decodeURIComponent(location.hash.slice(7))));
