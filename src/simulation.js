@@ -841,8 +841,25 @@ export function runSimulation({
     let corridorEdgeDensityTotal = 0;
     let corridorEdgeCellCount = 0;
     let outsideCorridorCells = 0;
+    const lineDistanceDensity = Array(65).fill(0);
+    const lineDistanceCells = Array(65).fill(0);
+    let lineDistanceUnreachable = 0;
+    let lineDistanceUnreachableCells = 0;
     for (let index = 0; index < densityRead.length; index += 1) {
       const amount = densityRead[index];
+      const distance = field.distance[index];
+      if (distance < 0) {
+        lineDistanceUnreachable = checkedAdd(lineDistanceUnreachable, amount, "line distance unreachable density");
+        lineDistanceUnreachableCells += 1;
+      } else {
+        const distanceIndex = Math.min(distance, 64);
+        lineDistanceDensity[distanceIndex] = checkedAdd(
+          lineDistanceDensity[distanceIndex],
+          amount,
+          `line distance density ${distanceIndex}`,
+        );
+        lineDistanceCells[distanceIndex] += 1;
+      }
       if (field.distance[index] < 0 || field.distance[index] > config.corridorWidth) {
         if (amount > 0) outsideCorridorCells += 1;
         continue;
@@ -945,6 +962,10 @@ export function runSimulation({
       blockedFrontDensityPeak,
       blockedFrontDensityPeakCell,
       outsideCorridorCells,
+      lineDistanceDensity,
+      lineDistanceCells,
+      lineDistanceUnreachable,
+      lineDistanceUnreachableCells,
       timeline,
     };
   }

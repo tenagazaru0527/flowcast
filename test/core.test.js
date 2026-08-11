@@ -156,7 +156,7 @@ test("unspecified corridorBlocksOutOfField preserves every 0.10.0 scenario hash"
   }
 });
 
-test("sampleInterval preserves every 0.11.0 scenario hash", () => {
+test("sampleInterval and line distance measurements preserve every 0.11.0 scenario hash", () => {
   const expected = {
     "poc-0-default": { straight: "4910305d", distributed: "e63ba5b1", detour: "9164f600" },
     "poc-1-wide": { straight: "f7606aa8", distributed: "97a13950", detour: "13073731" },
@@ -175,7 +175,18 @@ test("sampleInterval preserves every 0.11.0 scenario hash", () => {
           expected[scenario.scenarioId][inputName],
           `sampleInterval=${sampleInterval ?? "unspecified"}/${scenario.scenarioId}/${inputName}`,
         );
-        if (sampleInterval === undefined) assert.equal(result.measurements.timeline, null);
+        if (sampleInterval === undefined) {
+          const values = result.measurements;
+          assert.equal(values.timeline, null);
+          assert.equal(values.lineDistanceDensity.length, 65);
+          assert.equal(values.lineDistanceCells.length, 65);
+          assert.ok(values.lineDistanceDensity.every((value) => Number.isInteger(value) && value >= 0));
+          assert.ok(values.lineDistanceCells.every((value) => Number.isInteger(value) && value >= 0));
+          assert.equal(values.lineDistanceUnreachable, 0);
+          assert.equal(values.lineDistanceCells.reduce((total, value) => total + value, 0) + values.lineDistanceUnreachableCells, 64 * 64);
+          const remaining = result.density.reduce((total, value) => total + value, 0);
+          assert.equal(values.lineDistanceDensity.reduce((total, value) => total + value, 0), remaining);
+        }
       }
     }
   }

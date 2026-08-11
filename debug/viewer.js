@@ -479,6 +479,7 @@ function showMetrics(result, step) {
   $("#metric-occupied").textContent = measure ? String(measure.occupiedCellsPeak) : "—";
   $("#metric-hash").textContent = result?.stateHash ?? "—";
   showTimeline(measure?.timeline ?? null);
+  showLineDistance(measure ?? null);
 }
 
 function timelineGapNames(timeline) {
@@ -563,6 +564,59 @@ function downloadTimeline() {
   URL.revokeObjectURL(link.href);
 }
 
+function lineDistanceCsv(measure) {
+  return [
+    ["distance", "cells", "density"],
+    ...measure.lineDistanceDensity.map((density, distance) => [distance, measure.lineDistanceCells[distance], density]),
+  ].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
+}
+
+function showLineDistance(measure) {
+  const panel = $("#line-distance-panel");
+  const available = measure && Array.isArray(measure.lineDistanceDensity) && Array.isArray(measure.lineDistanceCells);
+  panel.hidden = !available;
+  if (!available) {
+    $("#line-distance-table").replaceChildren();
+    $("#line-distance-warning").textContent = "";
+    return;
+  }
+  const firstZero = measure.lineDistanceDensity.findIndex((density) => density === 0);
+  const lastDistance = firstZero < 0 ? measure.lineDistanceDensity.length - 1 : firstZero;
+  const table = $("#line-distance-table");
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const label of ["distance", "cells", "density"]) {
+    const cell = document.createElement("th");
+    cell.textContent = label;
+    headRow.append(cell);
+  }
+  head.append(headRow);
+  const body = document.createElement("tbody");
+  for (let distance = 0; distance <= lastDistance; distance += 1) {
+    const row = document.createElement("tr");
+    for (const value of [distance, measure.lineDistanceCells[distance], measure.lineDistanceDensity[distance]]) {
+      const cell = document.createElement("td");
+      cell.textContent = String(value);
+      row.append(cell);
+    }
+    body.append(row);
+  }
+  table.replaceChildren(head, body);
+  $("#line-distance-warning").textContent = measure.lineDistanceUnreachable === 0
+    ? ""
+    : `警告: lineDistanceUnreachable = ${measure.lineDistanceUnreachable}`;
+}
+
+function downloadLineDistance() {
+  const measure = displayed?.result?.measurements;
+  if (!measure?.lineDistanceDensity) return;
+  const blob = new Blob([lineDistanceCsv(measure)], { type: "text/csv;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `flowcast-line-distance-${$("#scenario-id").value}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
 function drawDisplayed() {
   const result = displayed?.result ?? null;
   const maximum = displayed?.scaleMaximum ?? currentMaximum(result?.density ?? []);
@@ -1011,6 +1065,7 @@ $("#build-playback").addEventListener("click", () => void buildPlayback());
 $("#play").addEventListener("click", togglePlayback);
 $("#frame-range").addEventListener("input", () => showPlaybackFrame(Number($("#frame-range").value)));
 $("#download-timeline").addEventListener("click", downloadTimeline);
+$("#download-line-distance").addEventListener("click", downloadLineDistance);
 $("#download").addEventListener("click", downloadState);
 $("#copy-url").addEventListener("click", async () => {
   updateUrl();

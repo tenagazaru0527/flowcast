@@ -260,7 +260,13 @@ export function serializeJsonLines(results) {
 function flattenMeasurements(measurements) {
   const flat = {};
   for (const name of Object.keys(measurements)) {
-    if (name === "timeline") continue;
+    if ([
+      "timeline",
+      "lineDistanceDensity",
+      "lineDistanceCells",
+      "lineDistanceUnreachable",
+      "lineDistanceUnreachableCells",
+    ].includes(name)) continue;
     const value = measurements[name];
     if (value !== null && typeof value === "object" && !Array.isArray(value)) {
       for (const child of Object.keys(value).sort()) flat[`${name}.${child}`] = value[child];

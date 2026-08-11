@@ -38,11 +38,20 @@ test("modes have fixed counts and workers 1 and 4 agree", async () => {
   assert.equal(runsPerPoint("C"), 33);
   assert.deepEqual(parallel, sequential);
   assert.match(serializeCsv(sequential), /criterion3Median10TwiceBasisPoints\n/);
-  const csv = serializeCsv([{ ...sequential[0], measurements: { gapThroughput: { central: 1, detour: 2 }, sourceDistance: { densityMax: 3, densityMaxExSource: 4 }, timeline: [{ step: 1 }] } }]);
+  const csv = serializeCsv([{ ...sequential[0], measurements: {
+    gapThroughput: { central: 1, detour: 2 },
+    sourceDistance: { densityMax: 3, densityMaxExSource: 4 },
+    timeline: [{ step: 1 }],
+    lineDistanceDensity: [1],
+    lineDistanceCells: [1],
+    lineDistanceUnreachable: 0,
+    lineDistanceUnreachableCells: 0,
+  } }]);
   assert.match(csv, /measurement\.gapThroughput\.central/);
   assert.match(csv, /measurement\.gapThroughput\.detour/);
   assert.match(csv, /measurement\.sourceDistance\.densityMax/);
   assert.doesNotMatch(csv, /timeline/);
+  assert.doesNotMatch(csv, /lineDistance/);
   assert.doesNotMatch(csv, /\[object Object\]/);
   assert.ok(serializeCsv(sequential).split("\n").slice(1, -1).every((row) => row.endsWith(",,,")));
   assert.ok(parallel.every((result) => /^[0-9a-f]{8}$/.test(result.stateHash)));

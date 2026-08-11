@@ -158,7 +158,9 @@ CI通過後、確認不要でマージできる変更は次のとおり。
 基準4は3入力の基本ランから `criterion4Dominated` として算出する。これは優越関係の生値であり、
 掃引ハーネスは合否・順位・推奨を出力しない。
 `sampleInterval` は既定 `0` のままとし、`measurements.timeline` は掃引CSVへ
-展開しない。既存の掃引CSV列構成は変更しない。
+展開しない。最終状態の `lineDistanceDensity` / `lineDistanceCells` /
+`lineDistanceUnreachable` / `lineDistanceUnreachableCells` も掃引CSVへ展開しない。
+既存の掃引CSV列構成は変更しない。
 
 ```bash
 node scripts/sweep.js --param capacity --values 65536,131072,262144 --mode B
@@ -217,6 +219,11 @@ Step 11までの設定値を操作できる。キャンバスでは3〜5本の�
 隣接する累積`gapThroughput`の差分を区間step数で割り、ビューア側だけで計算する。
 エンジンは区間量・変化率・判定を計算しない。表示したtimelineの累積値はCSVとして
 ダウンロードできる。グラフは描画しない。
+
+最終状態では、既存のBFS距離場を使った線からの距離別の密度合計とセル数を、距離0から
+密度合計が最初に0になる距離まで表形式で表示する。全65距離の生値をCSVとして
+ダウンロードでき、到達不能セルの密度合計が0でない場合だけ警告する。比・平均・判定や
+時系列への追加、グラフ描画は行わない。
 
 現在の盤面は `debug/` 独自形式のJSONとして保存・読み込みでき、URLのハッシュ部でも
 共有できる。formatVersion 3は線に加えて`blocked` / `source` / `sink` / `gaps`を保持する。
