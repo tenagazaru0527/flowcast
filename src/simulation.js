@@ -621,6 +621,7 @@ export function runSimulation({
   const conductanceStats = measure ? { min: Q, cell: -1, step: -1, throttled: 0 } : null;
   const outOfFieldByEdge = measure ? { left: 0, right: 0, top: 0, bottom: 0 } : null;
   const gapThroughput = measure ? gapMap.names.map(() => new Uint32Array(2)) : null;
+  const timeline = measure && config.sampleInterval > 0 ? [] : null;
   let sourcePositiveScoreDirections = 0;
   let sourcePositiveScoreDirectionsStep = -1;
   const maximumGuideMagnitude = measure ? guideMagnitudeMax(field) : 0;
@@ -766,6 +767,36 @@ export function runSimulation({
       }
       if (occupiedCells > occupiedCellsPeak) occupiedCellsPeak = occupiedCells;
       addUnsigned64(totalResidency, residentAmount);
+      if (timeline !== null && (step % config.sampleInterval === 0 || step === config.steps)) {
+        let densityMaximumExSource = 0;
+        for (let index = 0; index < cellCount; index += 1) {
+          if (sourceExclusion.excluded[index] === 0 && densityWrite[index] > densityMaximumExSource) {
+            densityMaximumExSource = densityWrite[index];
+          }
+        }
+        const gapThroughputSample = {};
+        for (let index = 0; index < gapMap.names.length; index += 1) {
+          gapThroughputSample[gapMap.names[index]] = unsigned64ToSafeInteger(
+            gapThroughput[index],
+            `timeline[${timeline.length}].gapThroughput.${gapMap.names[index]}`,
+          );
+        }
+        timeline.push({
+          step,
+          completed: totalCompleted,
+          outOfField,
+          remaining: residentAmount,
+          gapThroughput: gapThroughputSample,
+          blockedFrontDensityMax: measureBlockedFrontDensity(
+            densityWrite,
+            blockedCells.mask,
+            blockedCells.count,
+            config,
+          ).maximum,
+          densityMaxExSource: densityMaximumExSource,
+          occupiedCells,
+        });
+      }
     }
 
     const stepBackflowEvents = writeNextFeedback(
@@ -914,6 +945,7 @@ export function runSimulation({
       blockedFrontDensityPeak,
       blockedFrontDensityPeakCell,
       outsideCorridorCells,
+      timeline,
     };
   }
   return result;

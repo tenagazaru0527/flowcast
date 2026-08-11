@@ -92,7 +92,10 @@ function setCustom() {
   $("#gap-width").disabled = true;
 }
 
-function currentConfig(steps = integerValue("#steps", "steps")) {
+function currentConfig(
+  steps = integerValue("#steps", "steps"),
+  sampleInterval = integerValue("#sample-interval", "sampleInterval"),
+) {
   if (steps < 1 || steps > MAX_STEPS) {
     throw new RangeError(`steps must be an integer in [1, ${MAX_STEPS}]`);
   }
@@ -106,6 +109,7 @@ function currentConfig(steps = integerValue("#steps", "steps")) {
     advectionWeight: integerValue("#advection-weight", "advectionWeight"),
     diffusionWeight: integerValue("#diffusion-weight", "diffusionWeight"),
     steps,
+    sampleInterval,
   });
 }
 
@@ -194,6 +198,7 @@ function stateObject() {
       advectionWeight: Number($("#advection-weight").value),
       diffusionWeight: Number($("#diffusion-weight").value),
       steps: Number($("#steps").value),
+      sampleInterval: Number($("#sample-interval").value),
     },
     seed: Number($("#seed").value),
     lines: cloneLines(lines),
@@ -204,7 +209,10 @@ function stateObject() {
   };
 }
 
-function requestFor(steps = integerValue("#steps", "steps")) {
+function requestFor(
+  steps = integerValue("#steps", "steps"),
+  sampleInterval = integerValue("#sample-interval", "sampleInterval"),
+) {
   validateLines();
   validateBoard();
   return {
@@ -212,7 +220,7 @@ function requestFor(steps = integerValue("#steps", "steps")) {
     source: cloneCells(board.source),
     sink: cloneCells(board.sink),
     seed: integerValue("#seed", "seed"),
-    config: currentConfig(steps),
+    config: currentConfig(steps, sampleInterval),
     blocked: cloneCells(board.blocked),
     gaps: cloneGaps(board.gaps),
     measure: true,
@@ -470,6 +478,89 @@ function showMetrics(result, step) {
   $("#metric-field-edge").textContent = measure ? metricCell(measure.fieldEdgeDensityMax, measure.fieldEdgeDensityMaxCell) : "—";
   $("#metric-occupied").textContent = measure ? String(measure.occupiedCellsPeak) : "—";
   $("#metric-hash").textContent = result?.stateHash ?? "—";
+  showTimeline(measure?.timeline ?? null);
+}
+
+function timelineGapNames(timeline) {
+  return timeline.length === 0 ? [] : Object.keys(timeline[0].gapThroughput);
+}
+
+function intervalRate(timeline, index, gapName) {
+  const current = timeline[index];
+  const previous = index === 0 ? { step: 0, gapThroughput: {} } : timeline[index - 1];
+  return ((current.gapThroughput[gapName] - (previous.gapThroughput[gapName] ?? 0)) / (current.step - previous.step)).toFixed(1);
+}
+
+function showTimeline(timeline) {
+  const panel = $("#timeline-panel");
+  panel.hidden = !timeline || timeline.length === 0;
+  if (panel.hidden) {
+    $("#timeline-table").replaceChildren();
+    return;
+  }
+  const gapNames = timelineGapNames(timeline);
+  const headers = [
+    "step", "completed（累積）", "outOfField（累積）", "remaining（瞬時）",
+    ...gapNames.map((name) => `gap.${name}（累積）`),
+    ...gapNames.map((name) => `gap.${name} 区間量/step`),
+    "blockedFrontDensityMax（瞬時）", "densityMaxExSource（瞬時）", "occupiedCells（瞬時）",
+  ];
+  const table = $("#timeline-table");
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const header of headers) {
+    const cell = document.createElement("th");
+    cell.textContent = header;
+    headRow.append(cell);
+  }
+  head.append(headRow);
+  const body = document.createElement("tbody");
+  timeline.forEach((sample, index) => {
+    const values = [
+      sample.step, sample.completed, sample.outOfField, sample.remaining,
+      ...gapNames.map((name) => sample.gapThroughput[name]),
+      ...gapNames.map((name) => intervalRate(timeline, index, name)),
+      sample.blockedFrontDensityMax, sample.densityMaxExSource, sample.occupiedCells,
+    ];
+    const row = document.createElement("tr");
+    for (const value of values) {
+      const cell = document.createElement("td");
+      cell.textContent = value ?? "";
+      row.append(cell);
+    }
+    body.append(row);
+  });
+  table.replaceChildren(head, body);
+}
+
+function csvCell(value) {
+  const text = value === null || value === undefined ? "" : String(value);
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function timelineCsv(timeline) {
+  const gapNames = timelineGapNames(timeline);
+  const rows = timeline.map((sample) => [
+    sample.step, sample.completed, sample.outOfField, sample.remaining,
+    ...gapNames.map((name) => sample.gapThroughput[name]),
+    sample.blockedFrontDensityMax, sample.densityMaxExSource, sample.occupiedCells,
+  ]);
+  return [
+    ["step", "completed", "outOfField", "remaining", ...gapNames.map((name) => `gapThroughput.${name}`),
+      "blockedFrontDensityMax", "densityMaxExSource", "occupiedCells"],
+    ...rows,
+  ].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
+}
+
+function downloadTimeline() {
+  const timeline = displayed?.result?.measurements?.timeline;
+  if (!timeline || timeline.length === 0) return;
+  const blob = new Blob([timelineCsv(timeline)], { type: "text/csv;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `flowcast-timeline-${$("#scenario-id").value}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
 function drawDisplayed() {
@@ -535,7 +626,7 @@ async function buildPlayback() {
     for (let index = 0; index < steps.length; index += 1) {
       setStatus(`フレーム ${index + 1} / ${steps.length} を計算中`);
       await yieldFrame();
-      frames.push({ step: steps[index], result: runSimulation(requestFor(steps[index])) });
+      frames.push({ step: steps[index], result: runSimulation(requestFor(steps[index], 0)) });
     }
     let scaleMaximum = 0;
     for (const frame of frames) scaleMaximum = Math.max(scaleMaximum, currentMaximum(frame.result.density));
@@ -634,9 +725,11 @@ function applyState(replay) {
   const selectors = {
     corridorWidth: "#corridor-width", restoreWeight: "#restore-weight", congestionWeight: "#congestion-weight",
     congestionReference: "#congestion-reference", edgeFluxMax: "#edge-flux-max", advectionWeight: "#advection-weight",
-    diffusionWeight: "#diffusion-weight", steps: "#steps",
+    diffusionWeight: "#diffusion-weight", steps: "#steps", sampleInterval: "#sample-interval",
   };
-  for (const [key, selector] of Object.entries(selectors)) $(selector).value = String(replay.parameters[key]);
+  for (const [key, selector] of Object.entries(selectors)) {
+    if (Object.hasOwn(replay.parameters, key)) $(selector).value = String(replay.parameters[key]);
+  }
   $("#corridor-blocks-out-of-field").checked = replay.parameters.corridorBlocksOutOfField;
   $("#seed").value = String(replay.seed);
   lines = replayLines;
@@ -907,7 +1000,7 @@ $("#add-gap").addEventListener("click", () => {
 
 for (const selector of [
   "#corridor-width", "#corridor-blocks-out-of-field", "#restore-weight", "#congestion-weight",
-  "#congestion-reference", "#edge-flux-max", "#advection-weight", "#diffusion-weight", "#steps", "#seed",
+  "#congestion-reference", "#edge-flux-max", "#advection-weight", "#diffusion-weight", "#steps", "#sample-interval", "#seed",
 ]) $(selector).addEventListener("change", stateChanged);
 for (const selector of ["#show-blocked", "#show-lines", "#show-corridor", "#show-field-edge"]) {
   $(selector).addEventListener("change", drawDisplayed);
@@ -917,6 +1010,7 @@ $("#run-final").addEventListener("click", () => void runFinal());
 $("#build-playback").addEventListener("click", () => void buildPlayback());
 $("#play").addEventListener("click", togglePlayback);
 $("#frame-range").addEventListener("input", () => showPlaybackFrame(Number($("#frame-range").value)));
+$("#download-timeline").addEventListener("click", downloadTimeline);
 $("#download").addEventListener("click", downloadState);
 $("#copy-url").addEventListener("click", async () => {
   updateUrl();
@@ -950,6 +1044,7 @@ function initializeDefaults() {
   $("#advection-weight").value = String(DEFAULT_CONFIG.advectionWeight);
   $("#diffusion-weight").value = String(DEFAULT_CONFIG.diffusionWeight);
   $("#steps").value = "3600";
+  $("#sample-interval").value = String(DEFAULT_CONFIG.sampleInterval);
   $("#seed").value = String(DEFAULT_SEED);
   $("#gap-width").disabled = true;
   presetScenarioId = "poc-0-default";

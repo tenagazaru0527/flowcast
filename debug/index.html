@@ -36,6 +36,10 @@
       #warning, #url-warning { color: #ffd166; }
       #custom-warning { color: #ffd166; font-weight: bold; }
       .hint { color: #91a7c8; font-size: 12px; }
+      .timeline-scroll { overflow-x: auto; }
+      table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 12px; }
+      th, td { border: 1px solid #52617a; padding: 4px 6px; text-align: right; }
+      th { color: #91a7c8; }
     </style>
   </head>
   <body>
@@ -98,6 +102,7 @@
           <label>advectionWeight <input id="advection-weight" type="number" min="0" step="1"></label>
           <label>diffusionWeight <input id="diffusion-weight" type="number" min="0" step="1"></label>
           <label>steps <input id="steps" type="number" min="1" max="20000" step="1"></label>
+          <label>sampleInterval <input id="sample-interval" type="number" min="0" max="20000" step="1"></label>
           <label>seed <input id="seed" type="number" step="1"></label>
         </fieldset>
 
@@ -187,6 +192,11 @@
           <dt>occupiedCellsPeak</dt><dd id="metric-occupied">—</dd>
           <dt>stateHash</dt><dd id="metric-hash">—</dd>
         </dl>
+        <fieldset id="timeline-panel" hidden>
+          <legend>timeline</legend>
+          <button id="download-timeline" type="button">timeline CSVをダウンロード</button>
+          <div class="timeline-scroll"><table id="timeline-table"></table></div>
+        </fieldset>
         <div id="status" role="status" data-error="false">待機中</div>
       </div>
     </div>

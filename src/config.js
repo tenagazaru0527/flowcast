@@ -14,6 +14,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   burnRadius: 2 * Q,
   injectionPerStep: Q >> 6,
   steps: 3_600,
+  sampleInterval: 0,
   completionTarget: 32 * Q,
   transferRate: Q >> 2,
   // With the default capacity and transfer rate, one cell's total transfer
@@ -49,6 +50,7 @@ export function createConfig(overrides = {}) {
     "burnRadius",
     "injectionPerStep",
     "steps",
+    "sampleInterval",
     "completionTarget",
     "transferRate",
     "edgeFluxMax",
@@ -78,6 +80,9 @@ export function createConfig(overrides = {}) {
   }
   if (config.width <= 0 || config.height <= 0 || config.steps <= 0) {
     throw new RangeError("width, height, and steps must be positive");
+  }
+  if (config.sampleInterval < 0 || config.sampleInterval > config.steps) {
+    throw new RangeError("sampleInterval must be an integer step interval in [0, steps]");
   }
   if (config.capacity <= 0 || config.burnRadius <= 0) {
     throw new RangeError("capacity and burnRadius must be positive");

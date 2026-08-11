@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { Q, createConfig } from "../src/config.js";
+import { DEFAULT_CONFIG, Q, createConfig } from "../src/config.js";
 import { clampVector, divQ, fnv1aInt32, isqrt, mulQ, XorShift32 } from "../src/fixed-point.js";
 import { buildRestoreField, burnLines } from "../src/lines.js";
 import {
@@ -154,6 +154,61 @@ test("unspecified corridorBlocksOutOfField preserves every 0.10.0 scenario hash"
       assert.equal(result.stateHash, expected[scenario.scenarioId][inputName], `${scenario.scenarioId}/${inputName}`);
     }
   }
+});
+
+test("sampleInterval preserves every 0.11.0 scenario hash", () => {
+  const expected = {
+    "poc-0-default": { straight: "4910305d", distributed: "e63ba5b1", detour: "9164f600" },
+    "poc-1-wide": { straight: "f7606aa8", distributed: "97a13950", detour: "13073731" },
+    "poc-2-canyon": { straight: "e3ddaebc", distributed: "6e03aff9", detour: "ae3a98ad" },
+  };
+  for (const sampleInterval of [undefined, 1, 50, 100]) {
+    for (const scenario of SCENARIOS) {
+      for (const inputName of Object.keys(expected[scenario.scenarioId])) {
+        const config = sampleInterval === undefined ? {} : { sampleInterval };
+        const result = runSimulation({
+          lines: scenario.inputs[inputName], source: scenario.source, sink: scenario.sink,
+          blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED, config, measure: true,
+        });
+        assert.equal(
+          result.stateHash,
+          expected[scenario.scenarioId][inputName],
+          `sampleInterval=${sampleInterval ?? "unspecified"}/${scenario.scenarioId}/${inputName}`,
+        );
+        if (sampleInterval === undefined) assert.equal(result.measurements.timeline, null);
+      }
+    }
+  }
+});
+
+test("timeline records cumulative and instantaneous measurements at intervals and the final step", () => {
+  assert.throws(() => createConfig({ sampleInterval: -1 }), /sampleInterval/);
+  assert.throws(() => createConfig({ steps: 10, sampleInterval: 11 }), /sampleInterval/);
+  assert.throws(() => createConfig({ sampleInterval: 1.5 }), /must be an integer/);
+  const scenario = createCanyonScenario(1);
+  const result = runSimulation({
+    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink,
+    blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
+    config: { steps: 51, sampleInterval: 20 }, measure: true,
+  });
+  assert.deepEqual(result.measurements.timeline.map(({ step }) => step), [20, 40, 51]);
+  for (const sample of result.measurements.timeline) {
+    assert.deepEqual(Object.keys(sample).sort(), [
+      "blockedFrontDensityMax", "completed", "densityMaxExSource", "gapThroughput",
+      "occupiedCells", "outOfField", "remaining", "step",
+    ]);
+    assert.deepEqual(Object.keys(sample.gapThroughput), ["central", "detour"]);
+    assert.equal(sample.completed + sample.outOfField + sample.remaining, sample.step * DEFAULT_CONFIG.injectionPerStep);
+  }
+  assert.equal(result.measurements.timeline.at(-1).completed, result.measurements.totalCompleted);
+  assert.equal(result.measurements.timeline.at(-1).outOfField, result.measurements.outOfField);
+  const unmeasured = runSimulation({
+    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink,
+    blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
+    config: { steps: 51, sampleInterval: 20 }, measure: false,
+  });
+  assert.equal(unmeasured.measurements, undefined);
+  assert.equal(unmeasured.stateHash, result.stateHash);
 });
 
 test("default edge flux limit is at least the current theoretical transfer budget", () => {
