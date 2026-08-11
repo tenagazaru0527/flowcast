@@ -229,6 +229,40 @@ function createGapMap(gaps, blockedMask, config) {
   return { cellToGap, names };
 }
 
+function createSinkGroupMap(sinkGroups, sinkIndices, config) {
+  if (sinkGroups === undefined) return null;
+  if (!Array.isArray(sinkGroups) || sinkGroups.length > 4) {
+    throw new RangeError("sinkGroups must be an array containing at most four groups");
+  }
+  const sinkMask = new Uint8Array(config.width * config.height);
+  for (let index = 0; index < sinkIndices.length; index += 1) sinkMask[sinkIndices[index]] = 1;
+  const cellToGroup = new Uint8Array(config.width * config.height);
+  const names = [];
+  let assigned = 0;
+  for (let groupIndex = 0; groupIndex < sinkGroups.length; groupIndex += 1) {
+    const group = sinkGroups[groupIndex];
+    if (group === null || typeof group !== "object" || Array.isArray(group)) {
+      throw new TypeError(`sinkGroups[${groupIndex}] must be an object`);
+    }
+    if (typeof group.name !== "string" || group.name.length === 0 || names.includes(group.name)) {
+      throw new RangeError("sink group names must be non-empty and unique");
+    }
+    const indices = cellIndices(group.cells, config, `sinkGroups[${groupIndex}].cells`);
+    names.push(group.name);
+    for (let offset = 0; offset < indices.length; offset += 1) {
+      const cell = indices[offset];
+      if (sinkMask[cell] === 0) throw new RangeError("sink group cells must be sink cells");
+      if (cellToGroup[cell] !== 0) throw new RangeError("sink group cells must not overlap");
+      cellToGroup[cell] = groupIndex + 1;
+      assigned += 1;
+    }
+  }
+  if (assigned !== sinkIndices.length) {
+    throw new RangeError("sinkGroups must partition every sink cell exactly once");
+  }
+  return { cellToGroup, names };
+}
+
 function createSourceExclusion(source, config) {
   const excluded = new Uint8Array(config.width * config.height);
   let count = 0;
@@ -555,6 +589,7 @@ export function runSimulation({
   lines,
   source,
   sink,
+  sinkGroups,
   blocked = [],
   gaps = [],
   seed,
@@ -567,6 +602,7 @@ export function runSimulation({
   const sinkIndices = cellIndices(sink, config, "sink");
   const blockedCells = createBlockedMask(blocked, config);
   const gapMap = createGapMap(gaps, blockedCells.mask, config);
+  const sinkGroupMap = createSinkGroupMap(sinkGroups, sinkIndices, config);
   for (let index = 0; index < sourceIndices.length; index += 1) {
     if (blockedCells.mask[sourceIndices[index]] !== 0) throw new RangeError("source cells must not be blocked");
   }
@@ -621,6 +657,8 @@ export function runSimulation({
   const conductanceStats = measure ? { min: Q, cell: -1, step: -1, throttled: 0 } : null;
   const outOfFieldByEdge = measure ? { left: 0, right: 0, top: 0, bottom: 0 } : null;
   const gapThroughput = measure ? gapMap.names.map(() => new Uint32Array(2)) : null;
+  const sinkThroughput = measure && sinkGroupMap ? sinkGroupMap.names.map(() => new Uint32Array(2)) : null;
+  const sinkFirstArrivalStep = measure && sinkGroupMap ? new Int32Array(sinkGroupMap.names.length).fill(-1) : null;
   const timeline = measure && config.sampleInterval > 0 ? [] : null;
   let sourcePositiveScoreDirections = 0;
   let sourcePositiveScoreDirectionsStep = -1;
@@ -748,7 +786,13 @@ export function runSimulation({
     let completedThisStep = 0;
     for (let sinkOffset = 0; sinkOffset < sinkIndices.length; sinkOffset += 1) {
       const sinkIndex = sinkIndices[sinkOffset];
-      completedThisStep = checkedAdd(completedThisStep, densityWrite[sinkIndex], "step completion");
+      const arrived = densityWrite[sinkIndex];
+      completedThisStep = checkedAdd(completedThisStep, arrived, "step completion");
+      if (sinkThroughput !== null) {
+        const groupIndex = sinkGroupMap.cellToGroup[sinkIndex] - 1;
+        addUnsigned64(sinkThroughput[groupIndex], arrived);
+        if (arrived > 0 && sinkFirstArrivalStep[groupIndex] === -1) sinkFirstArrivalStep[groupIndex] = step;
+      }
       densityWrite[sinkIndex] = 0;
     }
     if (completedThisStep > 0) {
@@ -781,12 +825,23 @@ export function runSimulation({
             `timeline[${timeline.length}].gapThroughput.${gapMap.names[index]}`,
           );
         }
+        let sinkThroughputSample = null;
+        if (sinkThroughput !== null) {
+          sinkThroughputSample = {};
+          for (let index = 0; index < sinkGroupMap.names.length; index += 1) {
+            sinkThroughputSample[sinkGroupMap.names[index]] = unsigned64ToSafeInteger(
+              sinkThroughput[index],
+              `timeline[${timeline.length}].sinkThroughput.${sinkGroupMap.names[index]}`,
+            );
+          }
+        }
         timeline.push({
           step,
           completed: totalCompleted,
           outOfField,
           remaining: residentAmount,
           gapThroughput: gapThroughputSample,
+          ...(sinkThroughputSample === null ? {} : { sinkThroughput: sinkThroughputSample }),
           blockedFrontDensityMax: measureBlockedFrontDensity(
             densityWrite,
             blockedCells.mask,
@@ -896,6 +951,17 @@ export function runSimulation({
         `gapThroughput.${gapMap.names[index]}`,
       );
     }
+    let sinkThroughputTotals = null;
+    let sinkFirstArrivalStepTotals = null;
+    if (sinkThroughput !== null) {
+      sinkThroughputTotals = {};
+      sinkFirstArrivalStepTotals = {};
+      for (let index = 0; index < sinkGroupMap.names.length; index += 1) {
+        const name = sinkGroupMap.names[index];
+        sinkThroughputTotals[name] = unsigned64ToSafeInteger(sinkThroughput[index], `sinkThroughput.${name}`);
+        sinkFirstArrivalStepTotals[name] = sinkFirstArrivalStep[index];
+      }
+    }
     result.measurements = {
       densityMax,
       densityMaxCell,
@@ -921,6 +987,8 @@ export function runSimulation({
       sinkCellCount: sinkIndices.length,
       blockedCellCount: blockedCells.count,
       gapThroughput: gapThroughputTotals,
+      sinkThroughput: sinkThroughputTotals,
+      sinkFirstArrivalStep: sinkFirstArrivalStepTotals,
       sourceExclusionCellCount: sourceExclusion.count,
       injectionBase,
       injectionRemainder,

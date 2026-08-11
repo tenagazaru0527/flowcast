@@ -46,12 +46,16 @@ test("modes have fixed counts and workers 1 and 4 agree", async () => {
     lineDistanceCells: [1],
     lineDistanceUnreachable: 0,
     lineDistanceUnreachableCells: 0,
+    sinkThroughput: null,
+    sinkFirstArrivalStep: null,
   } }]);
   assert.match(csv, /measurement\.gapThroughput\.central/);
   assert.match(csv, /measurement\.gapThroughput\.detour/);
   assert.match(csv, /measurement\.sourceDistance\.densityMax/);
   assert.doesNotMatch(csv, /timeline/);
   assert.doesNotMatch(csv, /lineDistance/);
+  assert.doesNotMatch(csv, /sinkThroughput/);
+  assert.doesNotMatch(csv, /sinkFirstArrivalStep/);
   assert.doesNotMatch(csv, /\[object Object\]/);
   assert.ok(serializeCsv(sequential).split("\n").slice(1, -1).every((row) => row.endsWith(",,,")));
   assert.ok(parallel.every((result) => /^[0-9a-f]{8}$/.test(result.stateHash)));

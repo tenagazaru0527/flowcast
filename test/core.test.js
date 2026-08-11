@@ -166,18 +166,33 @@ test("sampleInterval and line distance measurements preserve every 0.11.0 scenar
     for (const scenario of SCENARIOS) {
       for (const inputName of Object.keys(expected[scenario.scenarioId])) {
         const config = sampleInterval === undefined ? {} : { sampleInterval };
+        const grouped = sampleInterval === 100 && scenario.scenarioId === "poc-1-wide" && inputName === "straight";
+        const sinkGroups = grouped ? [
+          { name: "upper", cells: scenario.sink.slice(0, 3) },
+          { name: "lower", cells: scenario.sink.slice(3) },
+        ] : undefined;
         const result = runSimulation({
           lines: scenario.inputs[inputName], source: scenario.source, sink: scenario.sink,
-          blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED, config, measure: true,
+          blocked: scenario.blocked, gaps: scenario.gaps, sinkGroups, seed: DEFAULT_SEED, config, measure: true,
         });
         assert.equal(
           result.stateHash,
           expected[scenario.scenarioId][inputName],
           `sampleInterval=${sampleInterval ?? "unspecified"}/${scenario.scenarioId}/${inputName}`,
         );
+        if (grouped) {
+          const values = result.measurements;
+          assert.equal(Object.values(values.sinkThroughput).reduce((total, value) => total + value, 0), values.totalCompleted);
+          for (const [name, throughput] of Object.entries(values.sinkThroughput)) {
+            assert.equal(values.sinkFirstArrivalStep[name] === -1, throughput === 0);
+          }
+          assert.ok(values.timeline.every((sample) => Object.keys(sample.sinkThroughput).join(",") === "upper,lower"));
+        }
         if (sampleInterval === undefined) {
           const values = result.measurements;
           assert.equal(values.timeline, null);
+          assert.equal(values.sinkThroughput, null);
+          assert.equal(values.sinkFirstArrivalStep, null);
           assert.equal(values.lineDistanceDensity.length, 65);
           assert.equal(values.lineDistanceCells.length, 65);
           assert.ok(values.lineDistanceDensity.every((value) => Number.isInteger(value) && value >= 0));
@@ -197,8 +212,12 @@ test("timeline records cumulative and instantaneous measurements at intervals an
   assert.throws(() => createConfig({ steps: 10, sampleInterval: 11 }), /sampleInterval/);
   assert.throws(() => createConfig({ sampleInterval: 1.5 }), /must be an integer/);
   const scenario = createCanyonScenario(1);
+  const sinkGroups = [
+    { name: "upper", cells: scenario.sink.slice(0, 3) },
+    { name: "lower", cells: scenario.sink.slice(3) },
+  ];
   const result = runSimulation({
-    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink,
+    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink, sinkGroups,
     blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
     config: { steps: 51, sampleInterval: 20 }, measure: true,
   });
@@ -206,20 +225,37 @@ test("timeline records cumulative and instantaneous measurements at intervals an
   for (const sample of result.measurements.timeline) {
     assert.deepEqual(Object.keys(sample).sort(), [
       "blockedFrontDensityMax", "completed", "densityMaxExSource", "gapThroughput",
-      "occupiedCells", "outOfField", "remaining", "step",
+      "occupiedCells", "outOfField", "remaining", "sinkThroughput", "step",
     ]);
     assert.deepEqual(Object.keys(sample.gapThroughput), ["central", "detour"]);
+    assert.deepEqual(Object.keys(sample.sinkThroughput), ["upper", "lower"]);
     assert.equal(sample.completed + sample.outOfField + sample.remaining, sample.step * DEFAULT_CONFIG.injectionPerStep);
   }
   assert.equal(result.measurements.timeline.at(-1).completed, result.measurements.totalCompleted);
   assert.equal(result.measurements.timeline.at(-1).outOfField, result.measurements.outOfField);
+  assert.equal(Object.values(result.measurements.sinkThroughput).reduce((total, value) => total + value, 0), result.measurements.totalCompleted);
   const unmeasured = runSimulation({
-    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink,
+    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink, sinkGroups,
     blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
     config: { steps: 51, sampleInterval: 20 }, measure: false,
   });
   assert.equal(unmeasured.measurements, undefined);
   assert.equal(unmeasured.stateHash, result.stateHash);
+});
+
+test("sinkGroups must partition sink cells with unique names and cells", () => {
+  const scenario = SCENARIOS[1];
+  const input = {
+    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink,
+    seed: DEFAULT_SEED, config: { steps: 1 },
+  };
+  assert.throws(() => runSimulation({ ...input, sinkGroups: {} }), /at most four groups/);
+  assert.throws(() => runSimulation({ ...input, sinkGroups: Array.from({ length: 5 }, (_, index) => ({ name: String(index), cells: [scenario.sink[index % scenario.sink.length]] })) }), /at most four groups/);
+  assert.throws(() => runSimulation({ ...input, sinkGroups: [{ name: "", cells: scenario.sink }] }), /non-empty and unique/);
+  assert.throws(() => runSimulation({ ...input, sinkGroups: [{ name: "same", cells: scenario.sink.slice(0, 3) }, { name: "same", cells: scenario.sink.slice(3) }] }), /non-empty and unique/);
+  assert.throws(() => runSimulation({ ...input, sinkGroups: [{ name: "all", cells: [...scenario.sink, [0, 0]] }] }), /must be sink cells/);
+  assert.throws(() => runSimulation({ ...input, sinkGroups: [{ name: "upper", cells: scenario.sink.slice(0, 3) }] }), /partition every sink cell/);
+  assert.throws(() => runSimulation({ ...input, sinkGroups: [{ name: "upper", cells: scenario.sink.slice(0, 3) }, { name: "lower", cells: scenario.sink.slice(2) }] }), /must not overlap/);
 });
 
 test("default edge flux limit is at least the current theoretical transfer budget", () => {

@@ -3,7 +3,7 @@ import { buildRestoreField, burnLines } from "../src/lines.js";
 import { runSimulation } from "../src/simulation.js";
 import { createCanyonScenario, DEFAULT_SEED, ENGINE_VERSION, SCENARIOS } from "../src/scenarios.js";
 
-const FORMAT_VERSION = 3;
+const FORMAT_VERSION = 4;
 const MAX_STEPS = 20_000;
 const MAX_URL_HASH_LENGTH = 8_000;
 const CELL_SIZE = 10;
@@ -16,6 +16,8 @@ const GAP_COLORS = Object.freeze(["#ff9f1c", "#2ec4b6", "#e71d36", "#9b5de5"]);
 const DEFAULT_GAP_NAMES = Object.freeze(["A", "B", "C", "D"]);
 const $ = (selector) => document.querySelector(selector);
 const canvas = $("#density");
+const SINK_GROUP_COLORS = Object.freeze(["#62ff7a", "#35d0ff", "#ffcc4d", "#c79aff"]);
+const DEFAULT_SINK_GROUP_NAMES = Object.freeze(["A", "B", "C", "D"]);
 const context = canvas.getContext("2d");
 const finalCache = new Map();
 const playbackCache = new Map();
@@ -28,6 +30,7 @@ let selectedGap = 0;
 let dragging = null;
 let tracing = null;
 let boardStroke = null;
+let selectedSinkGroup = 0;
 let rectangleStart = null;
 let displayed = null;
 let playback = null;
@@ -43,6 +46,10 @@ function cloneCells(value) {
 
 function cloneGaps(value) {
   return value.map(({ name, cells }) => ({ name, cells: cloneCells(cells) }));
+}
+
+function cloneSinkGroups(value) {
+  return value?.map(({ name, cells }) => ({ name, cells: cloneCells(cells) }));
 }
 
 function compareCells([leftX, leftY], [rightX, rightY]) {
@@ -82,6 +89,7 @@ function boardFromScenario(scenarioId, gapWidth) {
     sink: sortedCells(scenario.sink),
     blocked: sortedCells(scenario.blocked ?? []),
     gaps: (scenario.gaps ?? []).map(({ name, cells }) => ({ name, cells: sortedCells(cells) })),
+    sinkGroups: undefined,
   };
 }
 
@@ -180,6 +188,29 @@ function validateBoard(candidate = board) {
       gapCells.add(key);
     }
   });
+  if (candidate.sinkGroups !== undefined) {
+    if (!Array.isArray(candidate.sinkGroups) || candidate.sinkGroups.length > 4) {
+      throw new RangeError("sinkGroups must contain at most four groups");
+    }
+    const names = new Set();
+    const groupedCells = new Set();
+    candidate.sinkGroups.forEach((group, groupIndex) => {
+      if (!group || typeof group !== "object" || Array.isArray(group) || !Array.isArray(group.cells) || group.cells.length === 0) {
+        throw new TypeError(`sinkGroups[${groupIndex}] must contain cells`);
+      }
+      if (typeof group.name !== "string" || group.name.length === 0 || names.has(group.name)) {
+        throw new RangeError("sink group names must be non-empty and unique");
+      }
+      names.add(group.name);
+      const cells = cellSet(group.cells, `sinkGroups[${groupIndex}].cells`);
+      for (const key of cells) {
+        if (!sink.has(key)) throw new RangeError("sink group cells must be sink cells");
+        if (groupedCells.has(key)) throw new RangeError("sink group cells must not overlap");
+        groupedCells.add(key);
+      }
+    });
+    if (groupedCells.size !== sink.size) throw new RangeError("sink groups must cover every sink cell");
+  }
 }
 
 function stateObject() {
@@ -206,6 +237,7 @@ function stateObject() {
     source: cloneCells(board.source),
     sink: cloneCells(board.sink),
     gaps: cloneGaps(board.gaps),
+    sinkGroups: board.sinkGroups === undefined ? null : cloneSinkGroups(board.sinkGroups),
   };
 }
 
@@ -223,6 +255,7 @@ function requestFor(
     config: currentConfig(steps, sampleInterval),
     blocked: cloneCells(board.blocked),
     gaps: cloneGaps(board.gaps),
+    sinkGroups: cloneSinkGroups(board.sinkGroups),
     measure: true,
   };
 }
@@ -343,6 +376,51 @@ function renderBoardControls() {
     container.append(row);
   });
   $("#add-gap").disabled = board.gaps.length >= 4;
+  const sinkGroupContainer = $("#sink-group-list");
+  sinkGroupContainer.replaceChildren();
+  for (const [index, group] of (board.sinkGroups ?? []).entries()) {
+    const row = document.createElement("div");
+    row.className = "sink-group-row";
+    row.setAttribute("aria-selected", String(index === selectedSinkGroup));
+    const name = document.createElement("input");
+    name.value = group.name;
+    name.ariaLabel = `シンク群 ${index + 1} の名前`;
+    name.style.borderColor = SINK_GROUP_COLORS[index];
+    name.addEventListener("focus", () => {
+      selectedSinkGroup = index;
+      sinkGroupContainer.querySelectorAll(".sink-group-row").forEach((candidate, rowIndex) => candidate.setAttribute("aria-selected", String(rowIndex === index)));
+      drawDisplayed();
+    });
+    name.addEventListener("change", () => {
+      group.name = name.value;
+      setCustom();
+      renderBoardControls();
+      stateChanged();
+    });
+    const select = document.createElement("button");
+    select.type = "button";
+    select.textContent = `${group.cells.length}セル`;
+    select.addEventListener("click", () => {
+      selectedSinkGroup = index;
+      $("#editor-mode").value = "sink-group";
+      renderBoardControls();
+      drawDisplayed();
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "削除";
+    remove.addEventListener("click", () => {
+      board.sinkGroups.splice(index, 1);
+      if (board.sinkGroups.length === 0) board.sinkGroups = undefined;
+      selectedSinkGroup = Math.max(0, Math.min(selectedSinkGroup, (board.sinkGroups?.length ?? 1) - 1));
+      setCustom();
+      renderBoardControls();
+      stateChanged();
+    });
+    row.append(name, select, remove);
+    sinkGroupContainer.append(row);
+  }
+  $("#add-sink-group").disabled = (board.sinkGroups?.length ?? 0) >= 4;
   updateValidation();
 }
 
@@ -440,8 +518,17 @@ function drawOverlays() {
   });
   for (const point of board.source) drawMarker(point, "#ff4fd8");
   for (const point of board.sink) drawMarker(point, "#62ff7a");
-}
+  for (const [index, group] of (board.sinkGroups ?? []).entries()) {
+    for (const point of group.cells) drawMarker(point, SINK_GROUP_COLORS[index]);
+    if (group.cells.length > 0) {
+      const [x, y] = group.cells[0];
+      context.fillStyle = SINK_GROUP_COLORS[index];
+      context.font = "bold 10px ui-monospace";
+      context.fillText(group.name, x * CELL_SIZE + 1, y * CELL_SIZE + 9);
+    }
+  }
 
+}
 function drawDensity(result, scaleMaximum) {
   const density = result?.density ?? new Int32Array(DEFAULT_CONFIG.width * DEFAULT_CONFIG.height);
   for (let index = 0; index < density.length; index += 1) {
@@ -473,6 +560,10 @@ function showMetrics(result, step) {
   $("#metric-central-ratio").textContent = central !== undefined && detour !== undefined && central + detour > 0
     ? `${((central * 100) / (central + detour)).toFixed(2)}%`
     : "—";
+  const sinkEntries = Object.entries(measure?.sinkThroughput ?? {});
+  $("#metric-sink-throughput").textContent = sinkEntries.length > 0 ? sinkEntries.map(([name, value]) => `${name}: ${value}`).join(" / ") : "—";
+  const arrivalEntries = Object.entries(measure?.sinkFirstArrivalStep ?? {});
+  $("#metric-sink-first-arrival").textContent = arrivalEntries.length > 0 ? arrivalEntries.map(([name, value]) => `${name}: ${value}`).join(" / ") : "—";
   $("#metric-density-max").textContent = measure ? metricCell(measure.densityMaxExSource, measure.densityMaxExSourceCell) : "—";
   $("#metric-blocked-front").textContent = measure ? metricCell(measure.blockedFrontDensityMax, measure.blockedFrontDensityMaxCell) : "—";
   $("#metric-field-edge").textContent = measure ? metricCell(measure.fieldEdgeDensityMax, measure.fieldEdgeDensityMaxCell) : "—";
@@ -484,6 +575,10 @@ function showMetrics(result, step) {
 
 function timelineGapNames(timeline) {
   return timeline.length === 0 ? [] : Object.keys(timeline[0].gapThroughput);
+}
+
+function timelineSinkNames(timeline) {
+  return timeline.length === 0 ? [] : Object.keys(timeline[0].sinkThroughput ?? {});
 }
 
 function intervalRate(timeline, index, gapName) {
@@ -500,9 +595,11 @@ function showTimeline(timeline) {
     return;
   }
   const gapNames = timelineGapNames(timeline);
+  const sinkNames = timelineSinkNames(timeline);
   const headers = [
     "step", "completed（累積）", "outOfField（累積）", "remaining（瞬時）",
     ...gapNames.map((name) => `gap.${name}（累積）`),
+    ...sinkNames.map((name) => `sink.${name}（累積）`),
     ...gapNames.map((name) => `gap.${name} 区間量/step`),
     "blockedFrontDensityMax（瞬時）", "densityMaxExSource（瞬時）", "occupiedCells（瞬時）",
   ];
@@ -520,6 +617,7 @@ function showTimeline(timeline) {
     const values = [
       sample.step, sample.completed, sample.outOfField, sample.remaining,
       ...gapNames.map((name) => sample.gapThroughput[name]),
+      ...sinkNames.map((name) => sample.sinkThroughput[name]),
       ...gapNames.map((name) => intervalRate(timeline, index, name)),
       sample.blockedFrontDensityMax, sample.densityMaxExSource, sample.occupiedCells,
     ];
@@ -541,13 +639,17 @@ function csvCell(value) {
 
 function timelineCsv(timeline) {
   const gapNames = timelineGapNames(timeline);
+  const sinkNames = timelineSinkNames(timeline);
   const rows = timeline.map((sample) => [
     sample.step, sample.completed, sample.outOfField, sample.remaining,
     ...gapNames.map((name) => sample.gapThroughput[name]),
+    ...sinkNames.map((name) => sample.sinkThroughput[name]),
     sample.blockedFrontDensityMax, sample.densityMaxExSource, sample.occupiedCells,
   ]);
   return [
-    ["step", "completed", "outOfField", "remaining", ...gapNames.map((name) => `gapThroughput.${name}`),
+    ["step", "completed", "outOfField", "remaining",
+      ...gapNames.map((name) => `gapThroughput.${name}`),
+      ...sinkNames.map((name) => `sinkThroughput.${name}`),
       "blockedFrontDensityMax", "densityMaxExSource", "occupiedCells"],
     ...rows,
   ].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
@@ -745,22 +847,23 @@ function loadScenarioPreset() {
   presetScenarioId = scenarioId;
   board = boardFromScenario(scenarioId, Number($("#gap-width").value));
   selectedGap = 0;
+  selectedSinkGroup = 0;
   renderBoardControls();
   loadPreset("distributed");
 }
 
 function applyState(replay) {
   if (replay === null || typeof replay !== "object" || Array.isArray(replay)) throw new TypeError("viewer state must be an object");
-  if (![1, 2, FORMAT_VERSION].includes(replay.formatVersion)) {
+  if (![1, 2, 3, FORMAT_VERSION].includes(replay.formatVersion)) {
     throw new RangeError(`unsupported formatVersion: ${replay.formatVersion}`);
   }
   if (replay.scenarioId !== "custom") scenarioFor(replay.scenarioId, replay.gapWidth);
-  if (replay.formatVersion < FORMAT_VERSION && replay.scenarioId === "custom") {
+  if (replay.formatVersion < 3 && replay.scenarioId === "custom") {
     throw new RangeError("legacy states cannot reconstruct a custom board");
   }
   const replayLines = replay.formatVersion === 1 ? cellLinesToQ(replay.lines) : cloneLines(replay.lines);
   validateLines(replayLines);
-  const replayBoard = replay.formatVersion < FORMAT_VERSION
+  const replayBoard = replay.formatVersion < 3
     ? boardFromScenario(replay.scenarioId, replay.gapWidth)
     : {
         scenarioId: replay.scenarioId,
@@ -768,12 +871,16 @@ function applyState(replay) {
         source: cloneCells(replay.source),
         sink: cloneCells(replay.sink),
         gaps: cloneGaps(replay.gaps),
+        sinkGroups: replay.formatVersion < 4 || replay.sinkGroups === null ? undefined : cloneSinkGroups(replay.sinkGroups),
       };
   validateBoard(replayBoard);
   replayBoard.blocked = sortedCells(replayBoard.blocked);
   replayBoard.source = sortedCells(replayBoard.source);
   replayBoard.sink = sortedCells(replayBoard.sink);
   replayBoard.gaps = replayBoard.gaps.map(({ name, cells }) => ({ name, cells: sortedCells(cells) }));
+  if (replayBoard.sinkGroups !== undefined) {
+    replayBoard.sinkGroups = replayBoard.sinkGroups.map(({ name, cells }) => ({ name, cells: sortedCells(cells) }));
+  }
   $("#scenario-id").value = replay.scenarioId;
   $("#gap-width").value = String(replay.gapWidth);
   const selectors = {
@@ -790,6 +897,8 @@ function applyState(replay) {
   board = replayBoard;
   if (replay.scenarioId !== "custom") presetScenarioId = replay.scenarioId;
   selectedLine = 0;
+  selectedGap = 0;
+  selectedSinkGroup = 0;
   currentConfig();
   integerValue("#seed", "seed");
   $("#gap-width").disabled = replay.scenarioId !== "poc-2-canyon";
@@ -860,13 +969,18 @@ function applyBoardCell(cell, mode) {
       setStatus(`${mode === "source" ? "源" : "シンク"}は障害物セルに置けません`, true);
     } else {
       const cells = mode === "source" ? board.source : board.sink;
-      if (!removeCell(cells, cell)) cells.push(cell);
+      if (removeCell(cells, cell)) {
+        if (mode === "sink") for (const group of board.sinkGroups ?? []) removeCell(group.cells, cell);
+      } else {
+        cells.push(cell);
+      }
       changed = true;
     }
   } else if (mode === "remove-marker") {
     changed = removeCell(board.source, cell) || changed;
     changed = removeCell(board.sink, cell) || changed;
     for (const gap of board.gaps) changed = removeCell(gap.cells, cell) || changed;
+    for (const group of board.sinkGroups ?? []) changed = removeCell(group.cells, cell) || changed;
   } else if (mode === "gap") {
     const gap = board.gaps[selectedGap];
     if (!gap) {
@@ -881,12 +995,27 @@ function applyBoardCell(cell, mode) {
       gap.cells.push(cell);
       changed = true;
     }
+  } else if (mode === "sink-group") {
+    const group = board.sinkGroups?.[selectedSinkGroup];
+    if (!group) {
+      setStatus("先にシンク群を追加してください", true);
+    } else if (!includesCell(board.sink, cell)) {
+      setStatus("シンクセルだけをシンク群に登録できます", true);
+    } else if (removeCell(group.cells, cell)) {
+      changed = true;
+    } else if (board.sinkGroups.some((candidate, index) => index !== selectedSinkGroup && includesCell(candidate.cells, cell))) {
+      setStatus("シンクセルは複数の群に重複登録できません", true);
+    } else {
+      group.cells.push(cell);
+      changed = true;
+    }
   }
   if (!changed) return false;
   board.blocked.sort(compareCells);
   board.source.sort(compareCells);
   board.sink.sort(compareCells);
   board.gaps.forEach((gap) => gap.cells.sort(compareCells));
+  board.sinkGroups?.forEach((group) => group.cells.sort(compareCells));
   setCustom();
   return true;
 }
@@ -1047,6 +1176,18 @@ $("#add-gap").addEventListener("click", () => {
   board.gaps.push({ name, cells: [] });
   selectedGap = board.gaps.length - 1;
   $("#editor-mode").value = "gap";
+  setCustom();
+  renderBoardControls();
+  stateChanged();
+});
+$("#add-sink-group").addEventListener("click", () => {
+  if ((board.sinkGroups?.length ?? 0) >= 4) return;
+  board.sinkGroups ??= [];
+  const used = new Set(board.sinkGroups.map((group) => group.name));
+  const name = DEFAULT_SINK_GROUP_NAMES.find((candidate) => !used.has(candidate)) ?? `S${board.sinkGroups.length + 1}`;
+  board.sinkGroups.push({ name, cells: [] });
+  selectedSinkGroup = board.sinkGroups.length - 1;
+  $("#editor-mode").value = "sink-group";
   setCustom();
   renderBoardControls();
   stateChanged();
