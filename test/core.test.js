@@ -211,6 +211,32 @@ test("timeline records cumulative and instantaneous measurements at intervals an
   assert.equal(unmeasured.stateHash, result.stateHash);
 });
 
+test("line distance measurements preserve every 0.11.0 scenario hash and account for final density", () => {
+  const expected = {
+    "poc-0-default": { straight: "4910305d", distributed: "e63ba5b1", detour: "9164f600" },
+    "poc-1-wide": { straight: "f7606aa8", distributed: "97a13950", detour: "13073731" },
+    "poc-2-canyon": { straight: "e3ddaebc", distributed: "6e03aff9", detour: "ae3a98ad" },
+  };
+  for (const scenario of SCENARIOS) {
+    for (const inputName of Object.keys(expected[scenario.scenarioId])) {
+      const result = runSimulation({
+        lines: scenario.inputs[inputName], source: scenario.source, sink: scenario.sink,
+        blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED, measure: true,
+      });
+      const values = result.measurements;
+      assert.equal(result.stateHash, expected[scenario.scenarioId][inputName], `${scenario.scenarioId}/${inputName}`);
+      assert.equal(values.lineDistanceDensity.length, 65);
+      assert.equal(values.lineDistanceCells.length, 65);
+      assert.ok(values.lineDistanceDensity.every((value) => Number.isInteger(value) && value >= 0));
+      assert.ok(values.lineDistanceCells.every((value) => Number.isInteger(value) && value >= 0));
+      assert.equal(values.lineDistanceUnreachable, 0);
+      assert.equal(values.lineDistanceCells.reduce((total, value) => total + value, 0) + values.lineDistanceUnreachableCells, 64 * 64);
+      const remaining = result.density.reduce((total, value) => total + value, 0);
+      assert.equal(values.lineDistanceDensity.reduce((total, value) => total + value, 0), remaining);
+    }
+  }
+});
+
 test("default edge flux limit is at least the current theoretical transfer budget", () => {
   const config = createConfig();
   assert.ok(config.edgeFluxMax >= mulQ(config.capacity, config.transferRate));
