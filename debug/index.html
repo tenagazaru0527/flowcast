@@ -21,6 +21,9 @@
       .buttons > * { flex: 1 1 auto; }
       .line-list { display: flex; flex-wrap: wrap; gap: 6px; }
       .line-list button[aria-pressed="true"] { outline: 2px solid #fff; }
+      .gap-list { display: grid; gap: 6px; }
+      .gap-row { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; }
+      .gap-row[aria-selected="true"] { outline: 2px solid #fff; }
       dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; }
       dt { color: #91a7c8; }
       dd { margin: 0; overflow-wrap: anywhere; }
@@ -31,6 +34,7 @@
       .sink { color: #62ff7a; }
       #status[data-error="true"], #line-validation[data-error="true"] { color: #ff7b7b; }
       #warning, #url-warning { color: #ffd166; }
+      #custom-warning { color: #ffd166; font-weight: bold; }
       .hint { color: #91a7c8; font-size: 12px; }
     </style>
   </head>
@@ -46,6 +50,7 @@
               <option value="poc-0-default">poc-0-default</option>
               <option value="poc-1-wide">poc-1-wide</option>
               <option value="poc-2-canyon">poc-2-canyon</option>
+              <option value="custom" disabled>custom</option>
             </select>
           </label>
           <label>gapWidth
@@ -53,6 +58,33 @@
               <option>1</option><option>3</option><option>5</option><option>9</option><option>63</option>
             </select>
           </label>
+          <button id="load-scenario" type="button">盤面プリセットを読み込む</button>
+          <div id="custom-warning">編集中の custom 盤面はハッシュ回帰テストの対象外です</div>
+        </fieldset>
+
+        <fieldset>
+          <legend>board</legend>
+          <label>キャンバス操作
+            <select id="editor-mode">
+              <option value="line">線を編集</option>
+              <option value="blocked-toggle">障害物を切替</option>
+              <option value="blocked-paint">障害物を塗る</option>
+              <option value="blocked-erase">障害物を消す</option>
+              <option value="blocked-rect-paint">矩形で障害物を塗る</option>
+              <option value="blocked-rect-erase">矩形で障害物を消す</option>
+              <option value="source">源を指定</option>
+              <option value="sink">シンクを指定</option>
+              <option value="remove-marker">源・シンク・ギャップを解除</option>
+              <option value="gap">選択中のギャップを指定</option>
+            </select>
+          </label>
+          <div class="buttons">
+            <button id="clear-blocked" type="button">障害物を全消去</button>
+            <button id="add-gap" type="button">ギャップ群を追加</button>
+          </div>
+          <div id="blocked-count">障害物: 0セル</div>
+          <div id="gap-list" class="gap-list"></div>
+          <div class="hint">障害物の矩形操作は始点から終点までを含みます。ギャップは最大4群です。</div>
         </fieldset>
 
         <fieldset>
@@ -147,7 +179,7 @@
           <dt>completionStep</dt><dd id="metric-completion-step">—</dd>
           <dt>totalCompleted / ratio</dt><dd id="metric-completed">—</dd>
           <dt>outOfField / remaining</dt><dd id="metric-loss">—</dd>
-          <dt>gap central / detour</dt><dd id="metric-gap">—</dd>
+          <dt>gapThroughput</dt><dd id="metric-gap">—</dd>
           <dt>中央ルート比率</dt><dd id="metric-central-ratio">—</dd>
           <dt>densityMaxExSource</dt><dd id="metric-density-max">—</dd>
           <dt>blockedFrontDensityMax</dt><dd id="metric-blocked-front">—</dd>

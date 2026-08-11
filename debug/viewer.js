@@ -3,7 +3,7 @@ import { buildRestoreField, burnLines } from "../src/lines.js";
 import { runSimulation } from "../src/simulation.js";
 import { createCanyonScenario, DEFAULT_SEED, ENGINE_VERSION, SCENARIOS } from "../src/scenarios.js";
 
-const FORMAT_VERSION = 2;
+const FORMAT_VERSION = 3;
 const MAX_STEPS = 20_000;
 const MAX_URL_HASH_LENGTH = 8_000;
 const CELL_SIZE = 10;
@@ -12,6 +12,8 @@ const FRAME_STEPS = Object.freeze([
   1_400, 1_700, 2_000, 2_400, 2_800, 3_200, 3_600,
 ]);
 const LINE_COLORS = Object.freeze(["#35d0ff", "#ffcc4d", "#ff6b9d", "#8cff66", "#c79aff"]);
+const GAP_COLORS = Object.freeze(["#ff9f1c", "#2ec4b6", "#e71d36", "#9b5de5"]);
+const DEFAULT_GAP_NAMES = Object.freeze(["A", "B", "C", "D"]);
 const $ = (selector) => document.querySelector(selector);
 const canvas = $("#density");
 const context = canvas.getContext("2d");
@@ -19,15 +21,40 @@ const finalCache = new Map();
 const playbackCache = new Map();
 
 let lines = [];
+let board = null;
+let presetScenarioId = "poc-0-default";
 let selectedLine = 0;
+let selectedGap = 0;
 let dragging = null;
 let tracing = null;
+let boardStroke = null;
+let rectangleStart = null;
 let displayed = null;
 let playback = null;
 let playTimer = null;
 
 function cloneLines(value) {
   return value.map((line) => line.map(([x, y]) => [x, y]));
+}
+
+function cloneCells(value) {
+  return value.map(([x, y]) => [x, y]);
+}
+
+function cloneGaps(value) {
+  return value.map(({ name, cells }) => ({ name, cells: cloneCells(cells) }));
+}
+
+function compareCells([leftX, leftY], [rightX, rightY]) {
+  return leftX - rightX || leftY - rightY;
+}
+
+function sortedCells(value) {
+  return cloneCells(value).sort(compareCells);
+}
+
+function cellKey([x, y]) {
+  return `${x},${y}`;
 }
 
 function cellLinesToQ(value) {
@@ -45,6 +72,24 @@ function scenarioFor(scenarioId = $("#scenario-id").value, gapWidth = Number($("
   const scenario = SCENARIOS.find((candidate) => candidate.scenarioId === scenarioId);
   if (!scenario) throw new RangeError(`unknown scenarioId: ${scenarioId}`);
   return { ...scenario, blocked: [], gaps: [] };
+}
+
+function boardFromScenario(scenarioId, gapWidth) {
+  const scenario = scenarioFor(scenarioId, gapWidth);
+  return {
+    scenarioId,
+    source: sortedCells(scenario.source),
+    sink: sortedCells(scenario.sink),
+    blocked: sortedCells(scenario.blocked ?? []),
+    gaps: (scenario.gaps ?? []).map(({ name, cells }) => ({ name, cells: sortedCells(cells) })),
+  };
+}
+
+function setCustom() {
+  if (board.scenarioId === "custom") return;
+  board.scenarioId = "custom";
+  $("#scenario-id").value = "custom";
+  $("#gap-width").disabled = true;
 }
 
 function currentConfig(steps = integerValue("#steps", "steps")) {
@@ -83,11 +128,61 @@ function validateLines(candidate = lines) {
   }
 }
 
+function validateCell(point, label) {
+  if (!Array.isArray(point) || point.length !== 2 || !point.every(Number.isInteger)) {
+    throw new TypeError(`${label} must be an integer [x, y] cell`);
+  }
+  if (point[0] < 0 || point[0] >= DEFAULT_CONFIG.width || point[1] < 0 || point[1] >= DEFAULT_CONFIG.height) {
+    throw new RangeError(`${label} is outside the field`);
+  }
+}
+
+function cellSet(cells, label) {
+  const result = new Set();
+  cells.forEach((cell, index) => {
+    validateCell(cell, `${label}[${index}]`);
+    const key = cellKey(cell);
+    if (result.has(key)) throw new RangeError(`${label} must not contain duplicate coordinates`);
+    result.add(key);
+  });
+  return result;
+}
+
+function validateBoard(candidate = board) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) throw new TypeError("board must be an object");
+  if (!Array.isArray(candidate.source) || candidate.source.length === 0) throw new RangeError("source needs at least one cell");
+  if (!Array.isArray(candidate.sink) || candidate.sink.length === 0) throw new RangeError("sink needs at least one cell");
+  if (!Array.isArray(candidate.blocked)) throw new TypeError("blocked must be an array");
+  if (!Array.isArray(candidate.gaps) || candidate.gaps.length > 4) throw new RangeError("gaps must contain at most four groups");
+  const blocked = cellSet(candidate.blocked, "blocked");
+  const source = cellSet(candidate.source, "source");
+  const sink = cellSet(candidate.sink, "sink");
+  for (const key of source) if (blocked.has(key)) throw new RangeError("source cells must not be blocked");
+  for (const key of sink) if (blocked.has(key)) throw new RangeError("sink cells must not be blocked");
+  const gapNames = new Set();
+  const gapCells = new Set();
+  candidate.gaps.forEach((gap, gapIndex) => {
+    if (!gap || typeof gap !== "object" || Array.isArray(gap) || !Array.isArray(gap.cells)) {
+      throw new TypeError(`gaps[${gapIndex}] must contain cells`);
+    }
+    if (typeof gap.name !== "string" || gap.name.length === 0 || gapNames.has(gap.name)) {
+      throw new RangeError("gap names must be non-empty and unique");
+    }
+    gapNames.add(gap.name);
+    const cells = cellSet(gap.cells, `gaps[${gapIndex}].cells`);
+    for (const key of cells) {
+      if (blocked.has(key)) throw new RangeError("gap cells must not be blocked");
+      if (gapCells.has(key)) throw new RangeError("gap cells must not overlap");
+      gapCells.add(key);
+    }
+  });
+}
+
 function stateObject() {
   return {
     formatVersion: FORMAT_VERSION,
     engineVersion: ENGINE_VERSION,
-    scenarioId: $("#scenario-id").value,
+    scenarioId: board.scenarioId,
     gapWidth: Number($("#gap-width").value),
     parameters: {
       corridorWidth: Number($("#corridor-width").value),
@@ -102,20 +197,24 @@ function stateObject() {
     },
     seed: Number($("#seed").value),
     lines: cloneLines(lines),
+    blocked: cloneCells(board.blocked),
+    source: cloneCells(board.source),
+    sink: cloneCells(board.sink),
+    gaps: cloneGaps(board.gaps),
   };
 }
 
 function requestFor(steps = integerValue("#steps", "steps")) {
   validateLines();
-  const scenario = scenarioFor();
+  validateBoard();
   return {
     lines: cloneLines(lines),
-    source: scenario.source,
-    sink: scenario.sink,
+    source: cloneCells(board.source),
+    sink: cloneCells(board.sink),
     seed: integerValue("#seed", "seed"),
     config: currentConfig(steps),
-    blocked: scenario.blocked ?? [],
-    gaps: scenario.gaps ?? [],
+    blocked: cloneCells(board.blocked),
+    gaps: cloneGaps(board.gaps),
     measure: true,
   };
 }
@@ -138,7 +237,7 @@ function updateUrl() {
     cleanUrl.hash = "";
     history.replaceState(null, "", cleanUrl);
     $("#copy-url").disabled = true;
-    $("#url-warning").textContent = "制御点が多いため URL 共有できません。JSON で保存してください";
+    $("#url-warning").textContent = "盤面または制御点が多いため URL 共有できません。JSON で保存してください";
     return false;
   }
   history.replaceState(null, "", `${location.pathname}${location.search}#${hash}`);
@@ -152,6 +251,7 @@ function updateValidation() {
   let invalid = false;
   try {
     validateLines();
+    validateBoard();
     currentConfig();
     integerValue("#seed", "seed");
   } catch (error) {
@@ -186,6 +286,55 @@ function renderLineList() {
   $("#add-line").disabled = lines.length >= 5;
   $("#remove-line").disabled = lines.length === 0;
   $("#undo-point").disabled = !lines[selectedLine]?.length;
+  updateValidation();
+}
+
+function renderBoardControls() {
+  $("#blocked-count").textContent = `障害物: ${board.blocked.length}セル`;
+  const container = $("#gap-list");
+  container.replaceChildren();
+  board.gaps.forEach((gap, index) => {
+    const row = document.createElement("div");
+    row.className = "gap-row";
+    row.setAttribute("aria-selected", String(index === selectedGap));
+    const name = document.createElement("input");
+    name.value = gap.name;
+    name.ariaLabel = `ギャップ ${index + 1} の名前`;
+    name.style.borderColor = GAP_COLORS[index];
+    name.addEventListener("focus", () => {
+      selectedGap = index;
+      container.querySelectorAll(".gap-row").forEach((candidate, rowIndex) => candidate.setAttribute("aria-selected", String(rowIndex === index)));
+      drawDisplayed();
+    });
+    name.addEventListener("change", () => {
+      gap.name = name.value;
+      setCustom();
+      renderBoardControls();
+      stateChanged();
+    });
+    const select = document.createElement("button");
+    select.type = "button";
+    select.textContent = `${gap.cells.length}セル`;
+    select.addEventListener("click", () => {
+      selectedGap = index;
+      $("#editor-mode").value = "gap";
+      renderBoardControls();
+      drawDisplayed();
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "削除";
+    remove.addEventListener("click", () => {
+      board.gaps.splice(index, 1);
+      selectedGap = Math.max(0, Math.min(selectedGap, board.gaps.length - 1));
+      setCustom();
+      renderBoardControls();
+      stateChanged();
+    });
+    row.append(name, select, remove);
+    container.append(row);
+  });
+  $("#add-gap").disabled = board.gaps.length >= 4;
   updateValidation();
 }
 
@@ -230,10 +379,9 @@ function drawLines() {
 }
 
 function geometry() {
-  const scenario = scenarioFor();
   const config = currentConfig();
   const blockedMask = new Uint8Array(config.width * config.height);
-  for (const [x, y] of scenario.blocked ?? []) blockedMask[y * config.width + x] = 1;
+  for (const [x, y] of board.blocked) blockedMask[y * config.width + x] = 1;
   let corridorDistance = null;
   try {
     validateLines();
@@ -242,7 +390,7 @@ function geometry() {
   } catch {
     // Invalid lines remain visible and execution stays disabled.
   }
-  return { scenario, config, corridorDistance };
+  return { config, corridorDistance };
 }
 
 function drawOverlays() {
@@ -253,10 +401,10 @@ function drawOverlays() {
     drawLines();
     return;
   }
-  const { scenario, config, corridorDistance } = current;
+  const { config, corridorDistance } = current;
   if ($("#show-blocked").checked) {
     context.fillStyle = "rgb(120 128 145 / 0.8)";
-    for (const [x, y] of scenario.blocked ?? []) context.fillRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    for (const [x, y] of board.blocked) context.fillRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
   }
   if ($("#show-corridor").checked && corridorDistance) {
     context.fillStyle = "rgb(255 255 255 / 0.2)";
@@ -272,8 +420,18 @@ function drawOverlays() {
     context.strokeRect(1, 1, canvas.width - 2, canvas.height - 2);
   }
   drawLines();
-  for (const point of scenario.source) drawMarker(point, "#ff4fd8");
-  for (const point of scenario.sink) drawMarker(point, "#62ff7a");
+  board.gaps.forEach((gap, index) => {
+    context.fillStyle = `${GAP_COLORS[index]}99`;
+    for (const [x, y] of gap.cells) context.fillRect(x * CELL_SIZE + 2, y * CELL_SIZE + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+    if (gap.cells.length > 0) {
+      const [x, y] = gap.cells[0];
+      context.fillStyle = GAP_COLORS[index];
+      context.font = "bold 10px ui-monospace";
+      context.fillText(gap.name, x * CELL_SIZE + 1, y * CELL_SIZE + 9);
+    }
+  });
+  for (const point of board.source) drawMarker(point, "#ff4fd8");
+  for (const point of board.sink) drawMarker(point, "#62ff7a");
 }
 
 function drawDensity(result, scaleMaximum) {
@@ -300,11 +458,13 @@ function showMetrics(result, step) {
   $("#metric-completion-step").textContent = measure ? String(measure.completionStep) : "—";
   $("#metric-completed").textContent = measure ? `${measure.totalCompleted} / ${measure.completionRatio}%` : "—";
   $("#metric-loss").textContent = measure ? `${measure.outOfFieldRatio}% / ${measure.remainingRatio}%` : "—";
-  const isCanyon = $("#scenario-id").value === "poc-2-canyon";
   const central = measure?.gapThroughput?.central;
   const detour = measure?.gapThroughput?.detour;
-  $("#metric-gap").textContent = isCanyon && measure ? `${central} / ${detour}` : "—";
-  $("#metric-central-ratio").textContent = isCanyon && central + detour > 0 ? `${((central * 100) / (central + detour)).toFixed(2)}%` : "—";
+  const gapEntries = measure ? Object.entries(measure.gapThroughput) : [];
+  $("#metric-gap").textContent = gapEntries.length > 0 ? gapEntries.map(([name, value]) => `${name}: ${value}`).join(" / ") : "—";
+  $("#metric-central-ratio").textContent = central !== undefined && detour !== undefined && central + detour > 0
+    ? `${((central * 100) / (central + detour)).toFixed(2)}%`
+    : "—";
   $("#metric-density-max").textContent = measure ? metricCell(measure.densityMaxExSource, measure.densityMaxExSourceCell) : "—";
   $("#metric-blocked-front").textContent = measure ? metricCell(measure.blockedFrontDensityMax, measure.blockedFrontDensityMaxCell) : "—";
   $("#metric-field-edge").textContent = measure ? metricCell(measure.fieldEdgeDensityMax, measure.fieldEdgeDensityMaxCell) : "—";
@@ -427,21 +587,48 @@ function togglePlayback() {
 }
 
 function loadPreset(name = $("#preset").value) {
-  const scenario = scenarioFor();
+  const scenario = scenarioFor(presetScenarioId, Number($("#gap-width").value));
   lines = cloneLines(scenario.inputs[name]);
   selectedLine = 0;
   renderLineList();
   stateChanged();
 }
 
+function loadScenarioPreset() {
+  const scenarioId = $("#scenario-id").value;
+  if (scenarioId === "custom") return;
+  presetScenarioId = scenarioId;
+  board = boardFromScenario(scenarioId, Number($("#gap-width").value));
+  selectedGap = 0;
+  renderBoardControls();
+  loadPreset("distributed");
+}
+
 function applyState(replay) {
   if (replay === null || typeof replay !== "object" || Array.isArray(replay)) throw new TypeError("viewer state must be an object");
-  if (replay.formatVersion !== 1 && replay.formatVersion !== FORMAT_VERSION) {
+  if (![1, 2, FORMAT_VERSION].includes(replay.formatVersion)) {
     throw new RangeError(`unsupported formatVersion: ${replay.formatVersion}`);
   }
-  scenarioFor(replay.scenarioId, replay.gapWidth);
+  if (replay.scenarioId !== "custom") scenarioFor(replay.scenarioId, replay.gapWidth);
+  if (replay.formatVersion < FORMAT_VERSION && replay.scenarioId === "custom") {
+    throw new RangeError("legacy states cannot reconstruct a custom board");
+  }
   const replayLines = replay.formatVersion === 1 ? cellLinesToQ(replay.lines) : cloneLines(replay.lines);
   validateLines(replayLines);
+  const replayBoard = replay.formatVersion < FORMAT_VERSION
+    ? boardFromScenario(replay.scenarioId, replay.gapWidth)
+    : {
+        scenarioId: replay.scenarioId,
+        blocked: cloneCells(replay.blocked),
+        source: cloneCells(replay.source),
+        sink: cloneCells(replay.sink),
+        gaps: cloneGaps(replay.gaps),
+      };
+  validateBoard(replayBoard);
+  replayBoard.blocked = sortedCells(replayBoard.blocked);
+  replayBoard.source = sortedCells(replayBoard.source);
+  replayBoard.sink = sortedCells(replayBoard.sink);
+  replayBoard.gaps = replayBoard.gaps.map(({ name, cells }) => ({ name, cells: sortedCells(cells) }));
   $("#scenario-id").value = replay.scenarioId;
   $("#gap-width").value = String(replay.gapWidth);
   const selectors = {
@@ -453,12 +640,15 @@ function applyState(replay) {
   $("#corridor-blocks-out-of-field").checked = replay.parameters.corridorBlocksOutOfField;
   $("#seed").value = String(replay.seed);
   lines = replayLines;
+  board = replayBoard;
+  if (replay.scenarioId !== "custom") presetScenarioId = replay.scenarioId;
   selectedLine = 0;
   currentConfig();
   integerValue("#seed", "seed");
   $("#gap-width").disabled = replay.scenarioId !== "poc-2-canyon";
   $("#warning").textContent = replay.engineVersion === ENGINE_VERSION ? "" : `警告: engineVersion ${replay.engineVersion} を現行 ${ENGINE_VERSION} で読み込みました`;
   renderLineList();
+  renderBoardControls();
   stateChanged();
 }
 
@@ -480,6 +670,92 @@ function canvasPoint(event) {
   return [x, y];
 }
 
+function canvasCell(event) {
+  const bounds = canvas.getBoundingClientRect();
+  const x = Math.max(0, Math.min(DEFAULT_CONFIG.width - 1, Math.floor(((event.clientX - bounds.left) * canvas.width) / bounds.width / CELL_SIZE)));
+  const y = Math.max(0, Math.min(DEFAULT_CONFIG.height - 1, Math.floor(((event.clientY - bounds.top) * canvas.height) / bounds.height / CELL_SIZE)));
+  return [x, y];
+}
+
+function includesCell(cells, cell) {
+  const key = cellKey(cell);
+  return cells.some((candidate) => cellKey(candidate) === key);
+}
+
+function removeCell(cells, cell) {
+  const key = cellKey(cell);
+  const index = cells.findIndex((candidate) => cellKey(candidate) === key);
+  if (index < 0) return false;
+  cells.splice(index, 1);
+  return true;
+}
+
+function cellHasMarker(cell) {
+  return includesCell(board.source, cell)
+    || includesCell(board.sink, cell)
+    || board.gaps.some((gap) => includesCell(gap.cells, cell));
+}
+
+function applyBoardCell(cell, mode) {
+  let changed = false;
+  if (mode === "blocked-toggle") {
+    if (removeCell(board.blocked, cell)) changed = true;
+    else if (cellHasMarker(cell)) setStatus("源・シンク・ギャップのセルは障害物にできません", true);
+    else { board.blocked.push(cell); changed = true; }
+  } else if (mode === "blocked-paint" || mode === "blocked-rect-paint") {
+    if (includesCell(board.blocked, cell)) return false;
+    if (cellHasMarker(cell)) setStatus("源・シンク・ギャップのセルは障害物にできません", true);
+    else { board.blocked.push(cell); changed = true; }
+  } else if (mode === "blocked-erase" || mode === "blocked-rect-erase") {
+    changed = removeCell(board.blocked, cell);
+  } else if (mode === "source" || mode === "sink") {
+    if (includesCell(board.blocked, cell)) {
+      setStatus(`${mode === "source" ? "源" : "シンク"}は障害物セルに置けません`, true);
+    } else {
+      const cells = mode === "source" ? board.source : board.sink;
+      if (!removeCell(cells, cell)) cells.push(cell);
+      changed = true;
+    }
+  } else if (mode === "remove-marker") {
+    changed = removeCell(board.source, cell) || changed;
+    changed = removeCell(board.sink, cell) || changed;
+    for (const gap of board.gaps) changed = removeCell(gap.cells, cell) || changed;
+  } else if (mode === "gap") {
+    const gap = board.gaps[selectedGap];
+    if (!gap) {
+      setStatus("先にギャップ群を追加してください", true);
+    } else if (includesCell(board.blocked, cell)) {
+      setStatus("障害物セルはギャップに登録できません", true);
+    } else if (removeCell(gap.cells, cell)) {
+      changed = true;
+    } else if (board.gaps.some((candidate, index) => index !== selectedGap && includesCell(candidate.cells, cell))) {
+      setStatus("ギャップセルは複数の群に重複登録できません", true);
+    } else {
+      gap.cells.push(cell);
+      changed = true;
+    }
+  }
+  if (!changed) return false;
+  board.blocked.sort(compareCells);
+  board.source.sort(compareCells);
+  board.sink.sort(compareCells);
+  board.gaps.forEach((gap) => gap.cells.sort(compareCells));
+  setCustom();
+  return true;
+}
+
+function applyRectangle(start, end, mode) {
+  let changed = false;
+  const left = Math.min(start[0], end[0]);
+  const right = Math.max(start[0], end[0]);
+  const top = Math.min(start[1], end[1]);
+  const bottom = Math.max(start[1], end[1]);
+  for (let y = top; y <= bottom; y += 1) {
+    for (let x = left; x <= right; x += 1) changed = applyBoardCell([x, y], mode) || changed;
+  }
+  return changed;
+}
+
 function findPoint([x, y]) {
   for (let lineIndex = lines.length - 1; lineIndex >= 0; lineIndex -= 1) {
     for (let pointIndex = lines[lineIndex].length - 1; pointIndex >= 0; pointIndex -= 1) {
@@ -491,6 +767,20 @@ function findPoint([x, y]) {
 }
 
 canvas.addEventListener("pointerdown", (event) => {
+  const editorMode = $("#editor-mode").value;
+  if (editorMode !== "line") {
+    const cell = canvasCell(event);
+    if (editorMode.startsWith("blocked-rect-")) {
+      rectangleStart = { cell, pointerId: event.pointerId, mode: editorMode };
+    } else {
+      applyBoardCell(cell, editorMode);
+      boardStroke = { pointerId: event.pointerId, mode: editorMode, visited: new Set([cellKey(cell)]) };
+    }
+    canvas.setPointerCapture(event.pointerId);
+    renderBoardControls();
+    stateChanged(false);
+    return;
+  }
   const point = canvasPoint(event);
   const found = findPoint(point);
   if (found) {
@@ -510,6 +800,17 @@ canvas.addEventListener("pointerdown", (event) => {
   stateChanged(false);
 });
 canvas.addEventListener("pointermove", (event) => {
+  if (boardStroke && boardStroke.pointerId === event.pointerId) {
+    if (!["blocked-paint", "blocked-erase"].includes(boardStroke.mode)) return;
+    const cell = canvasCell(event);
+    const key = cellKey(cell);
+    if (boardStroke.visited.has(key)) return;
+    boardStroke.visited.add(key);
+    applyBoardCell(cell, boardStroke.mode);
+    renderBoardControls();
+    stateChanged(false);
+    return;
+  }
   const point = canvasPoint(event);
   if (dragging) {
     lines[dragging.lineIndex][dragging.pointIndex] = point;
@@ -525,13 +826,31 @@ canvas.addEventListener("pointermove", (event) => {
   }
   stateChanged(false);
 });
-canvas.addEventListener("pointerup", () => {
+canvas.addEventListener("pointerup", (event) => {
+  if (rectangleStart && rectangleStart.pointerId === event.pointerId) {
+    applyRectangle(rectangleStart.cell, canvasCell(event), rectangleStart.mode);
+    rectangleStart = null;
+    renderBoardControls();
+    stateChanged();
+    return;
+  }
+  if (boardStroke && boardStroke.pointerId === event.pointerId) {
+    boardStroke = null;
+    renderBoardControls();
+    stateChanged();
+    return;
+  }
   dragging = null;
   tracing = null;
   renderLineList();
   stateChanged();
 });
-canvas.addEventListener("pointercancel", () => { dragging = null; tracing = null; });
+canvas.addEventListener("pointercancel", () => {
+  dragging = null;
+  tracing = null;
+  boardStroke = null;
+  rectangleStart = null;
+});
 
 $("#add-line").addEventListener("click", () => {
   if (lines.length >= 5) return;
@@ -560,10 +879,31 @@ $("#clear-lines").addEventListener("click", () => {
 });
 $("#load-preset").addEventListener("click", () => loadPreset());
 $("#scenario-id").addEventListener("change", () => {
-  $("#gap-width").disabled = $("#scenario-id").value !== "poc-2-canyon";
-  loadPreset("distributed");
+  if ($("#scenario-id").value === "custom") return;
+  presetScenarioId = $("#scenario-id").value;
+  $("#gap-width").disabled = presetScenarioId !== "poc-2-canyon";
+  loadScenarioPreset();
 });
-$("#gap-width").addEventListener("change", () => loadPreset("distributed"));
+$("#load-scenario").addEventListener("click", loadScenarioPreset);
+$("#gap-width").addEventListener("change", loadScenarioPreset);
+$("#clear-blocked").addEventListener("click", () => {
+  if (board.blocked.length === 0) return;
+  board.blocked = [];
+  setCustom();
+  renderBoardControls();
+  stateChanged();
+});
+$("#add-gap").addEventListener("click", () => {
+  if (board.gaps.length >= 4) return;
+  const used = new Set(board.gaps.map((gap) => gap.name));
+  const name = DEFAULT_GAP_NAMES.find((candidate) => !used.has(candidate)) ?? `G${board.gaps.length + 1}`;
+  board.gaps.push({ name, cells: [] });
+  selectedGap = board.gaps.length - 1;
+  $("#editor-mode").value = "gap";
+  setCustom();
+  renderBoardControls();
+  stateChanged();
+});
 
 for (const selector of [
   "#corridor-width", "#corridor-blocks-out-of-field", "#restore-weight", "#congestion-weight",
@@ -612,7 +952,9 @@ function initializeDefaults() {
   $("#steps").value = "3600";
   $("#seed").value = String(DEFAULT_SEED);
   $("#gap-width").disabled = true;
-  lines = cloneLines(scenarioFor().inputs.distributed);
+  presetScenarioId = "poc-0-default";
+  board = boardFromScenario(presetScenarioId, Number($("#gap-width").value));
+  lines = cloneLines(scenarioFor(presetScenarioId).inputs.distributed);
   if (location.hash.startsWith("#state=")) {
     try {
       applyState(JSON.parse(decodeURIComponent(location.hash.slice(7))));
@@ -623,6 +965,7 @@ function initializeDefaults() {
     }
   }
   renderLineList();
+  renderBoardControls();
   updateUrl();
   drawDisplayed();
 }
