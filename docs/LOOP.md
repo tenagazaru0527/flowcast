@@ -157,6 +157,8 @@ CI通過後、確認不要でマージできる変更は次のとおり。
 モードにかかわらずCSV列は同一で、実行していない感度項目は空欄となる（0ではない）。
 基準4は3入力の基本ランから `criterion4Dominated` として算出する。これは優越関係の生値であり、
 掃引ハーネスは合否・順位・推奨を出力しない。
+`sampleInterval` は既定 `0` のままとし、`measurements.timeline` は掃引CSVへ
+展開しない。既存の掃引CSV列構成は変更しない。
 
 ```bash
 node scripts/sweep.js --param capacity --values 65536,131072,262144 --mode B
@@ -207,6 +209,14 @@ Step 11までの設定値を操作できる。キャンバスでは3〜5本の�
 最終状態モードは指定stepまで1回だけ再実行する。再生モードは固定の19段階を計算し、
 全フレーム共通の色スケールで表示する。生成済みフレームはシナリオ・設定・線・seedが
 変わらない間キャッシュされる。障害物、線、回廊の縁、場の縁は個別に表示を切り替えられる。
+
+`sampleInterval` を正の整数にすると、最終状態モードで指定間隔と最終stepの
+`measurements.timeline` を表形式で表示する。`completed` / `outOfField` /
+`gapThroughput` は累積値、`remaining` / `blockedFrontDensityMax` /
+`densityMaxExSource` / `occupiedCells` は標本時点の瞬時値である。区間通過量/stepは
+隣接する累積`gapThroughput`の差分を区間step数で割り、ビューア側だけで計算する。
+エンジンは区間量・変化率・判定を計算しない。表示したtimelineの累積値はCSVとして
+ダウンロードできる。グラフは描画しない。
 
 現在の盤面は `debug/` 独自形式のJSONとして保存・読み込みでき、URLのハッシュ部でも
 共有できる。formatVersion 3は線に加えて`blocked` / `source` / `sink` / `gaps`を保持する。
