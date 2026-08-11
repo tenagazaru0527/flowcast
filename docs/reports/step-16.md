@@ -97,7 +97,7 @@ Node v20.20.2で、`corridorWidth=2`を含む同一指定条件、`measure=true`
 
 ## 検証コマンド
 
-- `npm run verify`: PASS（禁止API、既存9ハッシュ、coreテスト26件）
+- `npm run verify`: PASS（禁止API、既存9ハッシュ、coreテスト25件）
 - `node --test test/sweep.test.js`: PASS（3件）
 - 追加した距離分布テスト: 9/9ハッシュ一致、配列長、非負整数、セル数、保存則、到達不能密度0を確認
 - `npm run test:browsers`: Node/Chrome一致。Firefox未導入のためコマンド全体は終了コード1
