@@ -89,7 +89,19 @@ diff -u \
 
 ## push確認
 
-最初のpush後に`git ls-remote --heads origin`を実行し、その出力を追記する。
+実装コミット`1ab1ace`のpush後に実行した。
+
+```text
+c928bea67d9bb07a53c2a83b2044688a6120a574 refs/heads/main
+c1910180b01baee1b82fe92180b58c0b371dd6f6 refs/heads/step/10
+bd65925ee95e1256ea04b9c7e233bf7bdfa70569 refs/heads/step/11
+25aed83ad6d545b591d4efc71dcfcf5400aadfec refs/heads/step/13
+b6d4492703f3755007ed3320f2c6016f988ad320 refs/heads/step/14
+9cb52dd400d6b95b2d2717bc331204f9542cbb91 refs/heads/step/15
+94b021ea96401f849abe927e2ffdd86ce90ca0f4 refs/heads/step/16
+0457a13c8dff4264392f9b1e864dcac3f63017af refs/heads/step/17
+1ab1acefe29a26a53bb016edbc10cf9ad5b19d58 refs/heads/step/18
+```
 
 ## 既知の制限
 
