@@ -80,7 +80,20 @@ Draft PR作成後にNode 20 / 22の結果を追記する。
 
 ## push確認
 
-最終実装コミットのpush後に`git ls-remote --heads origin`の出力を追記する。
+実装コミット`c098ab3`のpush後に実行した。
+
+```text
+67bfad11fc42a96464c36e3e8c2321589a0e4f69 refs/heads/main
+c1910180b01baee1b82fe92180b58c0b371dd6f6 refs/heads/step/10
+bd65925ee95e1256ea04b9c7e233bf7bdfa70569 refs/heads/step/11
+25aed83ad6d545b591d4efc71dcfcf5400aadfec refs/heads/step/13
+b6d4492703f3755007ed3320f2c6016f988ad320 refs/heads/step/14
+9cb52dd400d6b95b2d2717bc331204f9542cbb91 refs/heads/step/15
+94b021ea96401f849abe927e2ffdd86ce90ca0f4 refs/heads/step/16
+0457a13c8dff4264392f9b1e864dcac3f63017af refs/heads/step/17
+965d800e73947f424812272521db353c5a7eb496 refs/heads/step/18
+c098ab30bcf20c47efbb111e35c4f72d5cdef8c2 refs/heads/step/19
+```
 
 ## 既知の制限
 
