@@ -8,8 +8,12 @@
   },
   "scripts": {
     "test": "node --test",
+    "test:core": "node --test test/core.test.js",
+    "test:hashes": "node --test test/hashes.test.js",
+    "test:conservation": "node --test test/conservation.test.js",
+    "test:sweep": "node --test test/sweep.test.js",
     "test:browsers": "node scripts/check-browser-hashes.js",
-    "verify": "node scripts/check-forbidden-apis.js && node scripts/check-runtime-hashes.js && node --test test/core.test.js",
+    "verify": "node scripts/check-forbidden-apis.js && node scripts/check-runtime-hashes.js && npm run test:core && npm run test:hashes && npm run test:conservation",
     "report": "node test/acceptance.test.js"
   }
 }
