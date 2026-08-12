@@ -170,6 +170,7 @@ core ジョブでは受け入れ基準レポート、禁止API検査、runtime h
 展開しない。最終状態の `lineDistanceDensity` / `lineDistanceCells` /
 `lineDistanceUnreachable` / `lineDistanceUnreachableCells` も掃引CSVへ展開しない。
 `sinkGroups` は渡さず、`sinkThroughput` / `sinkFirstArrivalStep` も掃引CSVへ展開しない。
+`sampleDensity` は渡さず既定 `false` のままとする。
 Step 16基準とのCSV全内容diffで差分がないことを確認する。
 既存の掃引CSV列構成は変更しない。
 
@@ -231,6 +232,11 @@ source / sink / blocked / gap / sink groupはセル座標の昇順を保って�
 隣接する累積`gapThroughput`の差分を区間step数で割り、ビューア側だけで計算する。
 エンジンは区間量・変化率・判定を計算しない。表示したtimelineの累積値はCSVとして
 ダウンロードできる。グラフは描画しない。
+
+`sampleDensity = true` のとき、各timeline標本はその時点の全セル密度を独立した
+`Int32Array`の`density`として持つ。既定は`false`で、この場合は`density`キーを持たない。
+`sampleInterval = 0`または`measure = false`では記録しない。密度を記録する場合、標本数は
+`ceil(steps / sampleInterval)`で事前判定し、200を超えると実行前に例外を投げる。
 
 sink group指定時は、最終状態に群別の`sinkThroughput`と`sinkFirstArrivalStep`を表示する。
 未指定時は両方を`null`としてビューアに`—`を表示する。比・順位・到達順の判定は行わない。
