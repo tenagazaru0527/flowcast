@@ -80,6 +80,15 @@ CI通過後、確認不要でマージできる変更は次のとおり。
 - 未達は未達のまま報告する
 - 掃引は判定を行わない（記録のみ）
 
+## テスト構成
+
+`test/core.test.js` は短時間のコアテスト、`test/hashes.test.js` はバージョン間の
+ハッシュ回帰テスト、`test/conservation.test.js` は保存則テスト、
+`test/sweep.test.js` は掃引ハーネスのテストを持つ。CI は4種類を独立ジョブとして
+Node 20 / 22 で並列実行し、各ジョブのタイムアウトは15分、`fail-fast` は無効とする。
+core ジョブでは受け入れ基準レポート、禁止API検査、runtime hash検査も実行する。
+`npm run verify` は分割前と同じく、禁止API・runtime hash・core由来の全テストを検証する。
+
 ### source / sink の多セル規則
 
 - source / sink は座標配列とし、シナリオ定義側で昇順に固定する。実行時にソートしない
