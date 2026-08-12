@@ -68,19 +68,41 @@ core由来26テストすべてPASSを確認した。
 
 ## CI 所要時間
 
-PR作成後に Node 20 / 22 の全8ジョブを記録する。
+初回実装コミット `f53cd42` の pull_request run `31612216935` は全8ジョブPASS。
+
+| ジョブ | Node 20 | Node 22 |
+|---|---:|---:|
+| core | 3分03秒 | 2分23秒 |
+| hashes | 4分45秒 | 4分24秒 |
+| conservation | 2分03秒 | 1分54秒 |
+| sweep | 29秒 | 28秒 |
+
+同じコミットの push run `31612194023` も全8ジョブPASSした。
 
 ## 保護対象の差分
 
-実装コミット後に次を実行して記録する。
-
 ```text
 git diff --stat origin/main..step/19-a -- src scripts runtime-hashes.json game debug
+(出力なし)
 ```
 
 ## push確認
 
-push後に `git ls-remote --heads origin` の出力を記録する。
+初回実装コミットのpush後に実行した。
+
+```text
+67bfad11fc42a96464c36e3e8c2321589a0e4f69 refs/heads/main
+c1910180b01baee1b82fe92180b58c0b371dd6f6 refs/heads/step/10
+bd65925ee95e1256ea04b9c7e233bf7bdfa70569 refs/heads/step/11
+25aed83ad6d545b591d4efc71dcfcf5400aadfec refs/heads/step/13
+b6d4492703f3755007ed3320f2c6016f988ad320 refs/heads/step/14
+9cb52dd400d6b95b2d2717bc331204f9542cbb91 refs/heads/step/15
+94b021ea96401f849abe927e2ffdd86ce90ca0f4 refs/heads/step/16
+0457a13c8dff4264392f9b1e864dcac3f63017af refs/heads/step/17
+965d800e73947f424812272521db353c5a7eb496 refs/heads/step/18
+7a66c1819df14aea04fd7b37bd4de7abaec926dd refs/heads/step/19
+f53cd425264628ab0261fcc1c7ffc7f563c73544 refs/heads/step/19-a
+```
 
 ## 既知の制限
 
