@@ -160,6 +160,8 @@ CI通過後、確認不要でマージできる変更は次のとおり。
 `sampleInterval` は既定 `0` のままとし、`measurements.timeline` は掃引CSVへ
 展開しない。最終状態の `lineDistanceDensity` / `lineDistanceCells` /
 `lineDistanceUnreachable` / `lineDistanceUnreachableCells` も掃引CSVへ展開しない。
+`sinkGroups` は渡さず、`sinkThroughput` / `sinkFirstArrivalStep` も掃引CSVへ展開しない。
+Step 16基準とのCSV全内容diffで差分がないことを確認する。
 既存の掃引CSV列構成は変更しない。
 
 ```bash
@@ -203,10 +205,11 @@ Step 11までの設定値を操作できる。キャンバスでは3〜5本の�
 0.5 / 1.0セルの距離間引きを選択でき、線別と合計の制御点数を表示する。
 
 同じキャンバスで障害物の切替・連続塗り・矩形塗り、複数セルのsource / sink、最大4群の
-名前付きgapを編集できる。source / sink / blocked / gapはセル座標の昇順を保って保存し、
-実行時にはソートしない。編集後の盤面は`scenarioId = custom`となり、検証用3シナリオの
-ハッシュ回帰対象には含めない。実行前に範囲外、重複、障害物との重なり、source / sinkの
-空配列を検証する。
+名前付きgapと最大4群の名前付きsink groupを編集できる。sink groupはsink全セルを重複なく
+分割する必要があり、未定義なら実行可能、不正なら理由を表示して実行を無効化する。
+source / sink / blocked / gap / sink groupはセル座標の昇順を保って保存し、実行時には
+ソートしない。編集後の盤面は`scenarioId = custom`となり、検証用3シナリオのハッシュ回帰対象には
+含めない。実行前に範囲外、重複、障害物との重なり、source / sinkの空配列、sink groupの全分割を検証する。
 
 最終状態モードは指定stepまで1回だけ再実行する。再生モードは固定の19段階を計算し、
 全フレーム共通の色スケールで表示する。生成済みフレームはシナリオ・設定・線・seedが
@@ -214,11 +217,14 @@ Step 11までの設定値を操作できる。キャンバスでは3〜5本の�
 
 `sampleInterval` を正の整数にすると、最終状態モードで指定間隔と最終stepの
 `measurements.timeline` を表形式で表示する。`completed` / `outOfField` /
-`gapThroughput` は累積値、`remaining` / `blockedFrontDensityMax` /
+`gapThroughput` / `sinkThroughput` は累積値、`remaining` / `blockedFrontDensityMax` /
 `densityMaxExSource` / `occupiedCells` は標本時点の瞬時値である。区間通過量/stepは
 隣接する累積`gapThroughput`の差分を区間step数で割り、ビューア側だけで計算する。
 エンジンは区間量・変化率・判定を計算しない。表示したtimelineの累積値はCSVとして
 ダウンロードできる。グラフは描画しない。
+
+sink group指定時は、最終状態に群別の`sinkThroughput`と`sinkFirstArrivalStep`を表示する。
+未指定時は両方を`null`としてビューアに`—`を表示する。比・順位・到達順の判定は行わない。
 
 最終状態では、既存のBFS距離場を使った線からの距離別の密度合計とセル数を、距離0から
 密度合計が最初に0になる距離まで表形式で表示する。全65距離の生値をCSVとして
@@ -226,8 +232,9 @@ Step 11までの設定値を操作できる。キャンバスでは3〜5本の�
 時系列への追加、グラフ描画は行わない。
 
 現在の盤面は `debug/` 独自形式のJSONとして保存・読み込みでき、URLのハッシュ部でも
-共有できる。formatVersion 3は線に加えて`blocked` / `source` / `sink` / `gaps`を保持する。
-旧formatVersion 1 / 2は`scenarioId`と`gapWidth`から盤面を復元して読み込む。
+共有できる。formatVersion 4は線・`blocked` / `source` / `sink` / `gaps`に加えて
+`sinkGroups`を保持する。旧formatVersion 1 / 2は`scenarioId`と`gapWidth`から盤面を復元し、
+formatVersion 3は保存済み盤面を`sinkGroups`未定義として読み込む。
 URLハッシュ候補が8,000文字を超える場合はURLへ反映せず、JSON保存を案内する。
 この形式は `src/scenarios.js` のreplay形式とは別であり、製品用の描画・リプレイ形式を
 決定するものではない。同期実行の停止時間を制限するため、steps上限は20,000である。

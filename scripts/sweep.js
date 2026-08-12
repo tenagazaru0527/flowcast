@@ -266,6 +266,8 @@ function flattenMeasurements(measurements) {
       "lineDistanceCells",
       "lineDistanceUnreachable",
       "lineDistanceUnreachableCells",
+      "sinkThroughput",
+      "sinkFirstArrivalStep",
     ].includes(name)) continue;
     const value = measurements[name];
     if (value !== null && typeof value === "object" && !Array.isArray(value)) {

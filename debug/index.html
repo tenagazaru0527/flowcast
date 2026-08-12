@@ -21,9 +21,9 @@
       .buttons > * { flex: 1 1 auto; }
       .line-list { display: flex; flex-wrap: wrap; gap: 6px; }
       .line-list button[aria-pressed="true"] { outline: 2px solid #fff; }
-      .gap-list { display: grid; gap: 6px; }
-      .gap-row { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; }
-      .gap-row[aria-selected="true"] { outline: 2px solid #fff; }
+      .gap-list, .sink-group-list { display: grid; gap: 6px; }
+      .gap-row, .sink-group-row { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; }
+      .gap-row[aria-selected="true"], .sink-group-row[aria-selected="true"] { outline: 2px solid #fff; }
       dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; }
       dt { color: #91a7c8; }
       dd { margin: 0; overflow-wrap: anywhere; }
@@ -80,15 +80,18 @@
               <option value="sink">シンクを指定</option>
               <option value="remove-marker">源・シンク・ギャップを解除</option>
               <option value="gap">選択中のギャップを指定</option>
+              <option value="sink-group">選択中のシンク群を指定</option>
             </select>
           </label>
           <div class="buttons">
             <button id="clear-blocked" type="button">障害物を全消去</button>
             <button id="add-gap" type="button">ギャップ群を追加</button>
+            <button id="add-sink-group" type="button">シンク群を追加</button>
           </div>
           <div id="blocked-count">障害物: 0セル</div>
           <div id="gap-list" class="gap-list"></div>
-          <div class="hint">障害物の矩形操作は始点から終点までを含みます。ギャップは最大4群です。</div>
+          <div id="sink-group-list" class="sink-group-list"></div>
+          <div class="hint">障害物の矩形操作は始点から終点までを含みます。ギャップとシンク群は各最大4群です。</div>
         </fieldset>
 
         <fieldset>
@@ -185,6 +188,8 @@
           <dt>totalCompleted / ratio</dt><dd id="metric-completed">—</dd>
           <dt>outOfField / remaining</dt><dd id="metric-loss">—</dd>
           <dt>gapThroughput</dt><dd id="metric-gap">—</dd>
+          <dt>sinkThroughput</dt><dd id="metric-sink-throughput">—</dd>
+          <dt>sinkFirstArrivalStep</dt><dd id="metric-sink-first-arrival">—</dd>
           <dt>中央ルート比率</dt><dd id="metric-central-ratio">—</dd>
           <dt>densityMaxExSource</dt><dd id="metric-density-max">—</dd>
           <dt>blockedFrontDensityMax</dt><dd id="metric-blocked-front">—</dd>
