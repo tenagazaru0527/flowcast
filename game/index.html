@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>flowcast Step 18</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #111; color: #eee; }
+    body { margin: 0; padding: 20px; }
+    main { display: grid; grid-template-columns: minmax(320px, 640px) minmax(280px, 420px); gap: 20px; align-items: start; }
+    h1, h2 { margin-top: 0; }
+    canvas { width: 100%; height: auto; border: 1px solid #777; touch-action: none; background: #080808; }
+    section { border: 1px solid #555; padding: 14px; margin-bottom: 14px; }
+    button, .file-label { border: 1px solid #888; background: #222; color: inherit; padding: 8px 12px; cursor: pointer; }
+    button:disabled { opacity: 0.45; cursor: default; }
+    .controls, #line-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    #line-list button[aria-pressed="true"] { outline: 2px solid #eee; }
+    .file-label input { display: none; }
+    dl { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(120px, 1fr); gap: 8px; }
+    dt, dd { margin: 0; }
+    output[data-error="true"] { color: #ffb1b1; }
+    #judgment { font-size: 1.4rem; }
+    [hidden] { display: none !important; }
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h1>配分型課題</h1>
+  <main>
+    <div>
+      <canvas id="board" width="640" height="640" aria-label="盤面と密度場"></canvas>
+      <section>
+        <h2>線</h2>
+        <p>選択した線を盤面上でなぞり直せます。線は3〜5本です。</p>
+        <div id="line-list"></div>
+        <div class="controls">
+          <button id="add-line" type="button">線を追加</button>
+          <button id="remove-line" type="button">選択線を削除</button>
+          <button id="reset" type="button">やり直し</button>
+        </div>
+        <output id="line-status"></output>
+      </section>
+    </div>
+    <div>
+      <section>
+        <h2>課題</h2>
+        <dl>
+          <dt>目標</dt><dd>upper 55〜65%</dd>
+          <dt>場外損失</dt><dd>0%</dd>
+          <dt>到達率</dt><dd>50%以上</dd>
+          <dt>設定</dt><dd>3600 steps</dd>
+        </dl>
+        <div class="controls">
+          <button id="run" type="button">実行</button>
+          <button id="save" type="button" disabled>JSON保存</button>
+          <label class="file-label">JSON読込<input id="load" type="file" accept="application/json,.json"></label>
+        </div>
+        <output id="status" aria-live="polite"></output>
+      </section>
+      <section id="result-panel" hidden>
+        <h2 id="judgment">判定</h2>
+        <dl id="conditions"></dl>
+        <p>stateHash: <code id="state-hash"></code></p>
+      </section>
+      <section id="scores" hidden>
+        <h2>スコア軸</h2>
+        <dl>
+          <dt>速さ</dt><dd id="score-speed"></dd>
+          <dt>量</dt><dd id="score-quantity"></dd>
+          <dt>集中</dt><dd id="score-focus"></dd>
+          <dt>手数</dt><dd id="score-moves"></dd>
+        </dl>
+      </section>
+    </div>
+  </main>
+  <script type="module" src="./game.js"></script>
+</body>
+</html>
