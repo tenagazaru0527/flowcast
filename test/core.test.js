@@ -207,10 +207,37 @@ test("sampleInterval and line distance measurements preserve every 0.11.0 scenar
   }
 });
 
+test("density timeline samples preserve hashes and copy the simulated field", () => {
+  const expected = {
+    "poc-0-default": { straight: "4910305d", distributed: "e63ba5b1", detour: "9164f600" },
+    "poc-1-wide": { straight: "f7606aa8", distributed: "97a13950", detour: "13073731" },
+    "poc-2-canyon": { straight: "e3ddaebc", distributed: "6e03aff9", detour: "ae3a98ad" },
+  };
+  let canyonDistributed;
+  for (const scenario of SCENARIOS) {
+    for (const inputName of Object.keys(expected[scenario.scenarioId])) {
+      const result = runSimulation({
+        lines: scenario.inputs[inputName], source: scenario.source, sink: scenario.sink,
+        blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
+        config: { sampleInterval: 100, sampleDensity: true }, measure: true,
+      });
+      assert.equal(result.stateHash, expected[scenario.scenarioId][inputName], `${scenario.scenarioId}/${inputName}`);
+      assert.equal(result.measurements.timeline.length, 36);
+      assert.ok(result.measurements.timeline.every((sample) => sample.density instanceof Int32Array));
+      if (scenario.scenarioId === "poc-2-canyon" && inputName === "distributed") canyonDistributed = result;
+    }
+  }
+  const timeline = canyonDistributed.measurements.timeline;
+  assert.notDeepEqual(timeline[0].density, timeline[35].density);
+  assert.deepEqual(timeline[35].density, canyonDistributed.density);
+});
+
 test("timeline records cumulative and instantaneous measurements at intervals and the final step", () => {
+  assert.equal(createConfig().sampleDensity, false);
   assert.throws(() => createConfig({ sampleInterval: -1 }), /sampleInterval/);
   assert.throws(() => createConfig({ steps: 10, sampleInterval: 11 }), /sampleInterval/);
   assert.throws(() => createConfig({ sampleInterval: 1.5 }), /must be an integer/);
+  assert.throws(() => createConfig({ sampleDensity: 1 }), /sampleDensity must be a boolean/);
   const scenario = createCanyonScenario(1);
   const sinkGroups = [
     { name: "upper", cells: scenario.sink.slice(0, 3) },
@@ -227,6 +254,7 @@ test("timeline records cumulative and instantaneous measurements at intervals an
       "blockedFrontDensityMax", "completed", "densityMaxExSource", "gapThroughput",
       "occupiedCells", "outOfField", "remaining", "sinkThroughput", "step",
     ]);
+    assert.equal(Object.hasOwn(sample, "density"), false);
     assert.deepEqual(Object.keys(sample.gapThroughput), ["central", "detour"]);
     assert.deepEqual(Object.keys(sample.sinkThroughput), ["upper", "lower"]);
     assert.equal(sample.completed + sample.outOfField + sample.remaining, sample.step * DEFAULT_CONFIG.injectionPerStep);
@@ -241,6 +269,33 @@ test("timeline records cumulative and instantaneous measurements at intervals an
   });
   assert.equal(unmeasured.measurements, undefined);
   assert.equal(unmeasured.stateHash, result.stateHash);
+  const unmeasuredWithDensitySampling = runSimulation({
+    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink, sinkGroups,
+    blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
+    config: { steps: 201, sampleInterval: 1, sampleDensity: true }, measure: false,
+  });
+  assert.equal(unmeasuredWithDensitySampling.measurements, undefined);
+
+  const noInterval = runSimulation({
+    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink, sinkGroups,
+    blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
+    config: { steps: 1, sampleInterval: 0, sampleDensity: true }, measure: true,
+  });
+  assert.equal(noInterval.measurements.timeline, null);
+
+  assert.throws(
+    () => runSimulation({
+      lines: [], source: [], sink: [], seed: DEFAULT_SEED,
+      config: { steps: 3_600, sampleInterval: 1, sampleDensity: true }, measure: true,
+    }),
+    /3600 samples; limit is 200/,
+  );
+  const boundary = runSimulation({
+    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink, sinkGroups,
+    blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
+    config: { steps: 3_600, sampleInterval: 18, sampleDensity: true }, measure: true,
+  });
+  assert.equal(boundary.measurements.timeline.length, 200);
 });
 
 test("sinkGroups must partition sink cells with unique names and cells", () => {
