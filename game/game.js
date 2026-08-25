@@ -10,7 +10,9 @@ const context = canvas.getContext("2d");
 const elements = Object.fromEntries([
   "line-list", "line-status", "add-line", "remove-line", "reset", "run", "save", "load",
   "status", "result-panel", "judgment", "conditions", "state-hash", "scores", "score-speed",
-  "score-quantity", "score-focus", "score-moves",
+  "score-quantity", "score-focus", "score-moves", "challenge-title", "challenge-goal",
+  "challenge-constraints", "challenge-current", "challenge-steps", "sink-legend", "playback",
+  "playback-step", "playback-slider", "replay",
 ].map((id) => [id, document.querySelector(`#${id}`)]));
 
 let challenge;
@@ -19,6 +21,13 @@ let selectedLine = 0;
 let tracing = null;
 let displayedDensity = null;
 let lastResult = null;
+
+const PLAYBACK_FRAME_MS = 75;
+const SINK_COLORS = ["#65b9ff", "#ffb36b"];
+let playbackFrames = [];
+let playbackMaximum = 0;
+let playbackIndex = 0;
+let playbackTimer = null;
 
 function clone(value) {
   return structuredClone(value);
@@ -62,6 +71,47 @@ function simulationRequest() {
 
 function linePointCount() {
   return lines.reduce((total, line) => total + line.length, 0);
+}
+
+function percent(value) {
+  return `${Number(value).toFixed(2)}%`;
+}
+
+function sinkColor(name) {
+  const index = challenge.sinkGroups.findIndex((group) => group.name === name);
+  return SINK_COLORS[index] ?? "#fff";
+}
+
+function renderChallenge() {
+  elements["challenge-title"].textContent = challenge.title;
+  elements["challenge-goal"].textContent = `${challenge.sinkGroups[0].name} に ${challenge.goal.upperRatioMin}〜${challenge.goal.upperRatioMax}% を届ける`;
+  elements["challenge-constraints"].textContent = `場外損失 ${challenge.constraints.outOfFieldRatioMax}% / 到達率 ${challenge.constraints.completionRatioMin}% 以上`;
+  elements["challenge-steps"].textContent = `${challenge.parameters.steps} steps`;
+  elements["sink-legend"].replaceChildren(...challenge.sinkGroups.map((group) => {
+    const row = document.createElement("div");
+    const marker = document.createElement("span");
+    marker.style.background = sinkColor(group.name);
+    row.append(marker, document.createTextNode(`${group.name}: —`));
+    return row;
+  }));
+}
+
+function renderCurrent() {
+  if (!lastResult) {
+    elements["challenge-current"].textContent = "—";
+    renderChallenge();
+    return;
+  }
+  const evaluation = lastResult.evaluation;
+  elements["challenge-current"].textContent = `${challenge.sinkGroups[0].name} ${percent(evaluation.upperRatio)} / 場外 ${percent(evaluation.outOfFieldRatio)} / 到達率 ${percent(evaluation.completionRatio)}`;
+  elements["sink-legend"].replaceChildren(...challenge.sinkGroups.map((group) => {
+    const row = document.createElement("div");
+    const marker = document.createElement("span");
+    marker.style.background = sinkColor(group.name);
+    const throughput = lastResult.measurements.sinkThroughput[group.name] ?? 0;
+    row.append(marker, document.createTextNode(`${group.name}: ${throughput.toLocaleString()}`));
+    return row;
+  }));
 }
 
 function evaluate(result) {
@@ -114,11 +164,11 @@ function renderResult() {
   elements.judgment.textContent = evaluation.judgment;
   elements.conditions.replaceChildren();
   const rows = [
-    ["場外損失", `${evaluation.outOfFieldRatio}%（0% が必要）`],
-    ["到達率", `${evaluation.completionRatio}%（50% 以上が必要）`],
+    ["場外損失", `${percent(evaluation.outOfFieldRatio)}（${challenge.constraints.outOfFieldRatioMax}% 以下が必要）`],
+    ["到達率", `${percent(evaluation.completionRatio)}（${challenge.constraints.completionRatioMin}% 以上が必要）`],
     ["upper 比率", evaluation.failedStage === "constraint"
       ? "未評価（制約未達）"
-      : `${evaluation.upperRatio.toFixed(2)}%（55〜65% が必要）`],
+      : `${percent(evaluation.upperRatio)}（${challenge.goal.upperRatioMin}〜${challenge.goal.upperRatioMax}% が必要）`],
   ];
   for (const [label, value] of rows) {
     const term = document.createElement("dt");
@@ -145,8 +195,8 @@ function heatColor(amount, maximum) {
   return `hsl(0 0% ${lightness}%)`;
 }
 
-function drawMarker([x, y], shape) {
-  context.strokeStyle = "#fff";
+function drawMarker([x, y], shape, color = "#fff") {
+  context.strokeStyle = color;
   context.lineWidth = 2;
   if (shape === "source") context.strokeRect(x * CELL_SIZE + 2, y * CELL_SIZE + 2, 6, 6);
   else {
@@ -158,8 +208,8 @@ function drawMarker([x, y], shape) {
 
 function draw() {
   const density = displayedDensity ?? new Int32Array(DEFAULT_CONFIG.width * DEFAULT_CONFIG.height);
-  let maximum = 0;
-  for (const amount of density) maximum = Math.max(maximum, amount);
+  let maximum = playbackMaximum;
+  if (maximum === 0) for (const amount of density) maximum = Math.max(maximum, amount);
   for (let index = 0; index < density.length; index += 1) {
     context.fillStyle = heatColor(density[index], maximum);
     context.fillRect((index % 64) * CELL_SIZE, Math.floor(index / 64) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
@@ -183,7 +233,48 @@ function draw() {
     context.stroke();
   });
   for (const point of challenge.source) drawMarker(point, "source");
-  for (const point of challenge.sink) drawMarker(point, "sink");
+  for (const group of challenge.sinkGroups) {
+    for (const point of group.cells) drawMarker(point, "sink", sinkColor(group.name));
+  }
+}
+
+function stopPlayback() {
+  if (playbackTimer !== null) window.clearTimeout(playbackTimer);
+  playbackTimer = null;
+}
+
+function showPlaybackFrame(index) {
+  playbackIndex = Math.max(0, Math.min(playbackFrames.length - 1, index));
+  displayedDensity = playbackFrames[playbackIndex].density;
+  elements["playback-slider"].value = String(playbackIndex);
+  elements["playback-step"].textContent = `step ${playbackFrames[playbackIndex].step}`;
+  draw();
+}
+
+function finishPlayback() {
+  playbackTimer = null;
+  renderResult();
+  setStatus("再生完了");
+}
+
+function playTimeline() {
+  stopPlayback();
+  if (playbackFrames.length === 0) {
+    renderResult();
+    return;
+  }
+  elements["result-panel"].hidden = true;
+  elements.scores.hidden = true;
+  showPlaybackFrame(0);
+  const advance = () => {
+    if (playbackIndex >= playbackFrames.length - 1) {
+      finishPlayback();
+      return;
+    }
+    showPlaybackFrame(playbackIndex + 1);
+    playbackTimer = window.setTimeout(advance, PLAYBACK_FRAME_MS);
+  };
+  playbackTimer = window.setTimeout(advance, PLAYBACK_FRAME_MS);
 }
 
 function renderLines() {
@@ -211,9 +302,14 @@ function renderLines() {
 }
 
 function invalidateResult() {
+  stopPlayback();
   displayedDensity = null;
   lastResult = null;
+  playbackFrames = [];
+  playbackMaximum = 0;
+  elements.playback.hidden = true;
   renderResult();
+  renderCurrent();
   setStatus("");
   renderLines();
   draw();
@@ -274,22 +370,36 @@ elements.reset.addEventListener("click", () => {
 async function run() {
   try {
     elements.run.disabled = true;
+    elements["result-panel"].hidden = true;
+    elements.scores.hidden = true;
     setStatus("計算中…");
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const started = performance.now();
     const result = runSimulation(simulationRequest());
     const evaluation = evaluate(result);
-    displayedDensity = result.density;
     lastResult = { evaluation, stateHash: result.stateHash, measurements: result.measurements };
-    renderResult();
-    draw();
-    setStatus(`完了（${(performance.now() - started).toFixed(1)} ms）`);
+    playbackFrames = (result.measurements.timeline ?? []).filter((sample) => sample.density instanceof Int32Array);
+    playbackMaximum = playbackFrames.reduce((maximum, sample) => sample.density.reduce((value, amount) => Math.max(value, amount), maximum), 0);
+    displayedDensity = result.density;
+    elements.playback.hidden = playbackFrames.length === 0;
+    elements["playback-slider"].max = String(Math.max(0, playbackFrames.length - 1));
+    renderCurrent();
+    setStatus(`計算完了（${(performance.now() - started).toFixed(1)} ms）。再生中…`);
+    playTimeline();
   } catch (error) {
     setStatus(error instanceof Error ? error.message : String(error), true);
   } finally {
     renderLines();
   }
 }
+
+
+elements.replay.addEventListener("click", playTimeline);
+elements["playback-slider"].addEventListener("input", () => {
+  stopPlayback();
+  showPlaybackFrame(Number(elements["playback-slider"].value));
+  renderResult();
+});
 
 elements.run.addEventListener("click", run);
 
@@ -347,8 +457,12 @@ elements.load.addEventListener("change", async () => {
       stateHash: state.stateHash,
       measurements: clone(state.result.measurements),
     } : null;
+    playbackFrames = [];
+    playbackMaximum = 0;
+    elements.playback.hidden = true;
     renderLines();
     renderResult();
+    renderCurrent();
     draw();
     setStatus(state.engineVersion === ENGINE_VERSION ? "JSONを読み込みました" : `engineVersion ${state.engineVersion} を読み込みました`);
   } catch (error) {
@@ -364,7 +478,9 @@ challenge = await fetch("./challenge.json").then((response) => {
 });
 if (challenge.engineVersion !== ENGINE_VERSION) throw new Error("課題のengineVersionが一致しません");
 lines = clone(challenge.lines);
+renderChallenge();
 renderLines();
 renderResult();
+renderCurrent();
 draw();
 window.flowcastGame = { run, savedState: () => clone(savedState()), challenge: () => clone(challenge) };
