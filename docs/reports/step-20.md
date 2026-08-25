@@ -46,3 +46,15 @@ engineVersion、既定値、受け入れ基準、閾値、標本数、stepsは�
 - `git diff --check`: PASS
 - `npm run build`: `package.json`にbuild scriptがないため未実行
 - Chrome: Google Chrome 149.0.7827.200（headless）
+
+## push確認
+
+実装コミット`b75fc15b9ae6242de95edefecd642754a02a1908`のpush後に確認した。
+
+```text
+b75fc15b9ae6242de95edefecd642754a02a1908 refs/heads/step/20
+```
+
+## PR CI
+
+Draft PR #37で、pushとPR作成により起動した2組のCIを確認した。Node 20/22のcore、hashes、conservation、sweepは全16ジョブPASS。
