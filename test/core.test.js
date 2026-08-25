@@ -81,9 +81,11 @@ test("restore field uses fixed descent ties and avoids blocked cells", () => {
 });
 
 test("timeline records cumulative and instantaneous measurements at intervals and the final step", () => {
+  assert.equal(createConfig().sampleDensity, false);
   assert.throws(() => createConfig({ sampleInterval: -1 }), /sampleInterval/);
   assert.throws(() => createConfig({ steps: 10, sampleInterval: 11 }), /sampleInterval/);
   assert.throws(() => createConfig({ sampleInterval: 1.5 }), /must be an integer/);
+  assert.throws(() => createConfig({ sampleDensity: 1 }), /sampleDensity must be a boolean/);
   const scenario = createCanyonScenario(1);
   const sinkGroups = [
     { name: "upper", cells: scenario.sink.slice(0, 3) },
@@ -100,6 +102,7 @@ test("timeline records cumulative and instantaneous measurements at intervals an
       "blockedFrontDensityMax", "completed", "densityMaxExSource", "gapThroughput",
       "occupiedCells", "outOfField", "remaining", "sinkThroughput", "step",
     ]);
+    assert.equal(Object.hasOwn(sample, "density"), false);
     assert.deepEqual(Object.keys(sample.gapThroughput), ["central", "detour"]);
     assert.deepEqual(Object.keys(sample.sinkThroughput), ["upper", "lower"]);
     assert.equal(sample.completed + sample.outOfField + sample.remaining, sample.step * DEFAULT_CONFIG.injectionPerStep);
@@ -114,6 +117,33 @@ test("timeline records cumulative and instantaneous measurements at intervals an
   });
   assert.equal(unmeasured.measurements, undefined);
   assert.equal(unmeasured.stateHash, result.stateHash);
+  const unmeasuredWithDensitySampling = runSimulation({
+    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink, sinkGroups,
+    blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
+    config: { steps: 201, sampleInterval: 1, sampleDensity: true }, measure: false,
+  });
+  assert.equal(unmeasuredWithDensitySampling.measurements, undefined);
+
+  const noInterval = runSimulation({
+    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink, sinkGroups,
+    blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
+    config: { steps: 1, sampleInterval: 0, sampleDensity: true }, measure: true,
+  });
+  assert.equal(noInterval.measurements.timeline, null);
+
+  assert.throws(
+    () => runSimulation({
+      lines: [], source: [], sink: [], seed: DEFAULT_SEED,
+      config: { steps: 3_600, sampleInterval: 1, sampleDensity: true }, measure: true,
+    }),
+    /3600 samples; limit is 200/,
+  );
+  const boundary = runSimulation({
+    lines: scenario.inputs.straight, source: scenario.source, sink: scenario.sink, sinkGroups,
+    blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
+    config: { steps: 3_600, sampleInterval: 18, sampleDensity: true }, measure: true,
+  });
+  assert.equal(boundary.measurements.timeline.length, 200);
 });
 
 test("sinkGroups must partition sink cells with unique names and cells", () => {

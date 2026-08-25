@@ -5,6 +5,7 @@ import { clampVector, hashHex, isqrt, mulQ } from "./fixed-point.js";
 const DIRECTION_X = [0, 1, 0, -1];
 const DIRECTION_Y = [-1, 0, 1, 0];
 const COHERENCE_SIGMA_THRESHOLD = 2 * Q;
+const MAX_DENSITY_SAMPLES = 200;
 
 function checkedAdd(left, right, label) {
   const result = left + right;
@@ -598,6 +599,12 @@ export function runSimulation({
 }) {
   if (!Number.isInteger(seed)) throw new TypeError("seed must be an integer");
   const config = createConfig(configOverrides);
+  if (measure && config.sampleDensity && config.sampleInterval > 0) {
+    const sampleCount = Math.ceil(config.steps / config.sampleInterval);
+    if (sampleCount > MAX_DENSITY_SAMPLES) {
+      throw new RangeError(`sampleDensity requires ${sampleCount} samples; limit is ${MAX_DENSITY_SAMPLES}`);
+    }
+  }
   const sourceIndices = cellIndices(source, config, "source");
   const sinkIndices = cellIndices(sink, config, "sink");
   const blockedCells = createBlockedMask(blocked, config);
@@ -850,6 +857,7 @@ export function runSimulation({
           ).maximum,
           densityMaxExSource: densityMaximumExSource,
           occupiedCells,
+          ...(config.sampleDensity ? { density: new Int32Array(densityWrite) } : {}),
         });
       }
     }

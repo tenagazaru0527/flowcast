@@ -15,6 +15,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   injectionPerStep: Q >> 6,
   steps: 3_600,
   sampleInterval: 0,
+  sampleDensity: false,
   completionTarget: 32 * Q,
   transferRate: Q >> 2,
   // With the default capacity and transfer rate, one cell's total transfer
@@ -95,6 +96,9 @@ export function createConfig(overrides = {}) {
   }
   if (typeof config.corridorBlocksOutOfField !== "boolean") {
     throw new TypeError("corridorBlocksOutOfField must be a boolean");
+  }
+  if (typeof config.sampleDensity !== "boolean") {
+    throw new TypeError("sampleDensity must be a boolean");
   }
   if (config.injectionPerStep * config.steps > 2_147_483_647) {
     throw new RangeError("total configured injection must fit Int32");

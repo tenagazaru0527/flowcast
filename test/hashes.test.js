@@ -195,3 +195,28 @@ test("an empty obstacle mask preserves the new poc-1-wide default hashes", () =>
     assert.equal(result.stateHash, expected[inputName], inputName);
   }
 });
+
+test("density timeline samples preserve hashes and copy the simulated field", () => {
+  const expected = {
+    "poc-0-default": { straight: "4910305d", distributed: "e63ba5b1", detour: "9164f600" },
+    "poc-1-wide": { straight: "f7606aa8", distributed: "97a13950", detour: "13073731" },
+    "poc-2-canyon": { straight: "e3ddaebc", distributed: "6e03aff9", detour: "ae3a98ad" },
+  };
+  let canyonDistributed;
+  for (const scenario of SCENARIOS) {
+    for (const inputName of Object.keys(expected[scenario.scenarioId])) {
+      const result = runSimulation({
+        lines: scenario.inputs[inputName], source: scenario.source, sink: scenario.sink,
+        blocked: scenario.blocked, gaps: scenario.gaps, seed: DEFAULT_SEED,
+        config: { sampleInterval: 100, sampleDensity: true }, measure: true,
+      });
+      assert.equal(result.stateHash, expected[scenario.scenarioId][inputName], `${scenario.scenarioId}/${inputName}`);
+      assert.equal(result.measurements.timeline.length, 36);
+      assert.ok(result.measurements.timeline.every((sample) => sample.density instanceof Int32Array));
+      if (scenario.scenarioId === "poc-2-canyon" && inputName === "distributed") canyonDistributed = result;
+    }
+  }
+  const timeline = canyonDistributed.measurements.timeline;
+  assert.notDeepEqual(timeline[0].density, timeline[35].density);
+  assert.deepEqual(timeline[35].density, canyonDistributed.density);
+});
