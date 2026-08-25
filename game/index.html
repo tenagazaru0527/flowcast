@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>flowcast Step 18</title>
+  <title>flowcast Step 20</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #111; color: #eee; }
     body { margin: 0; padding: 20px; }
@@ -20,18 +20,21 @@
     dt, dd { margin: 0; }
     output[data-error="true"] { color: #ffb1b1; }
     #judgment { font-size: 1.4rem; }
+    #playback-slider { width: 100%; }
+    .legend { display: grid; gap: 8px; }
+    .legend span { display: inline-block; width: 1em; height: 1em; margin-right: 0.5em; vertical-align: -0.1em; }
     [hidden] { display: none !important; }
     @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-  <h1>配分型課題</h1>
+  <h1 id="challenge-title">配分型課題</h1>
   <main>
     <div>
       <canvas id="board" width="640" height="640" aria-label="盤面と密度場"></canvas>
       <section>
         <h2>線</h2>
-        <p>選択した線を盤面上でなぞり直せます。線は3〜5本です。</p>
+        <p>線リストから編集する線を選び、盤面をなぞって引き直します。線は3〜5本です。変更後は「実行」を押します。</p>
         <div id="line-list"></div>
         <div class="controls">
           <button id="add-line" type="button">線を追加</button>
@@ -45,17 +48,30 @@
       <section>
         <h2>課題</h2>
         <dl>
-          <dt>目標</dt><dd>upper 55〜65%</dd>
-          <dt>場外損失</dt><dd>0%</dd>
-          <dt>到達率</dt><dd>50%以上</dd>
-          <dt>設定</dt><dd>3600 steps</dd>
+          <dt>目標</dt><dd id="challenge-goal"></dd>
+          <dt>制約</dt><dd id="challenge-constraints"></dd>
+          <dt>現在</dt><dd id="challenge-current">—</dd>
+          <dt>設定</dt><dd id="challenge-steps"></dd>
         </dl>
+        <p id="initial-state">初期状態の線は目標を満たしません。線を変えてください。</p>
         <div class="controls">
           <button id="run" type="button">実行</button>
           <button id="save" type="button" disabled>JSON保存</button>
           <label class="file-label">JSON読込<input id="load" type="file" accept="application/json,.json"></label>
         </div>
         <output id="status" aria-live="polite"></output>
+      </section>
+      <section>
+        <h2>シンク</h2>
+        <div id="sink-legend" class="legend"></div>
+      </section>
+      <section id="playback" hidden>
+        <h2>再生</h2>
+        <p id="playback-step"></p>
+        <input id="playback-slider" type="range" min="0" value="0" step="1" aria-label="再生する標本">
+        <div class="controls">
+          <button id="replay" type="button">もう一度再生</button>
+        </div>
       </section>
       <section id="result-panel" hidden>
         <h2 id="judgment">判定</h2>
