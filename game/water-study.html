@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>flowcast — 水を、ちょうどよく分けよう</title>
+<style>
+*{box-sizing:border-box} :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#080f17;color:#e9f5f8}
+body{margin:0;min-height:100vh;padding:32px clamp(16px,4vw,64px);background:radial-gradient(ellipse at 50% 35%,#213947 0%,#101c28 45%,#080f17 85%)}
+header,main,footer{max-width:1200px;margin:auto}header{display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:28px}.brand{font:32px Georgia,serif;letter-spacing:2px;color:#ccecf6}.brand small{display:block;font:10px system-ui;letter-spacing:3px;color:#8da8b8;margin-top:8px}h1{font-size:clamp(21px,3vw,34px);font-weight:500;margin:0 0 8px}header p{margin:0;color:#95adbb;font-size:13px}
+.stage{position:relative;aspect-ratio:1100/600;border:14px solid #304451;border-top-color:#607380;border-bottom-color:#172631;border-radius:28px;background:#263843;box-shadow:0 16px 0 #101e28,0 35px 70px #0009,inset 0 0 30px #0008;overflow:hidden}canvas{width:100%;height:100%;display:block;touch-action:none;cursor:grab}canvas:active{cursor:grabbing}
+.label{position:absolute;font-size:11px;letter-spacing:1px;color:#d8f5ff;pointer-events:none;text-shadow:0 2px 3px #000}.source{left:2%;top:55%}.hint{position:absolute;bottom:16px;left:24px;color:#d4e7ed99;font-size:12px;pointer-events:none}
+.vessel{position:absolute;left:90%;width:9%;height:30%;border:2px solid #b6dbe199;border-top:0;border-bottom:5px solid #c7edffa6;border-radius:45% 45% 44% 44% / 14% 14% 16% 16%;background:linear-gradient(98deg,#e6fbff40,transparent 18%,#020e1f28 48%,transparent 74%,#c5f1ff55 94%,#fff9);box-shadow:inset 4px 0 4px #e5faff55,inset -6px -4px 8px #03213e88,0 7px 0 #102c3d,9px 19px 15px #0009,0 8px 14px #72d5ff33;pointer-events:none}.vessel.upper{top:7%}.vessel.lower{top:54%;border-bottom-color:#e0b66dc9}.vessel::before{content:"";position:absolute;z-index:2;inset:-9% -2% auto;height:20%;border:3px solid #cef4ffba;border-bottom-color:#efffffee;border-radius:50%;background:linear-gradient(160deg,#c0eaff16,#08182f44 60%,#ecffff16);box-shadow:inset 0 2px 2px #071b36aa,0 1px 2px #fff8}.vessel.lower::before{border-color:#f0c884bb;border-bottom-color:#ffe7a5}.vessel::after{content:"";position:absolute;z-index:3;inset:5% 5% 5%;border-radius:25% 25% 42% 42% / 15%;background:linear-gradient(98deg,transparent 3%,#ffffffaa 5%,#e4faff22 10%,transparent 17% 78%,#d0edff44 88%,transparent 92%);border-bottom:2px solid #d8faff88}
+.water{position:absolute;bottom:0;left:1%;right:1%;height:0%;border-radius:0 0 44% 44% / 0 0 21% 21%;background:linear-gradient(90deg,#7beaff44,#08b7dd26 22%,#0381b855 60%,#89f3ff55);box-shadow:inset 2px -6px 9px #bdffff55,inset -6px -12px 20px #00537c66;overflow:visible}.water.empty{visibility:hidden}.water:before{content:"";position:absolute;z-index:1;inset:-13% -1% auto;height:26%;border-radius:50%;border:2px solid #d5ffffcc;border-bottom-color:#f1ffff; background:radial-gradient(ellipse at 35% 30%,#f1ffffaa,transparent 24%),repeating-radial-gradient(ellipse at 60% 60%,#baffff18 0 7px,#c3ffff66 8px,transparent 10px 19px),linear-gradient(145deg,#99f9ff66,#1ba4d966);box-shadow:0 3px 4px #027ca244,inset 0 2px 4px #e5ffff88}.water:after{content:"";position:absolute;inset:0;border-radius:inherit;background:repeating-conic-gradient(from 20deg at 40% 75%,transparent 0 21deg,#caffff44 23deg,transparent 27deg 48deg),repeating-radial-gradient(ellipse at 40% 85%,transparent 0 9px,#bfffff44 10px,transparent 12px 22px);mask-image:linear-gradient(transparent,#000);opacity:.45;animation:shimmer 5s ease-in-out infinite alternate}.target{position:absolute;z-index:4;left:-5%;right:-5%;bottom:55%;height:10%;border-block:2px solid #fff9;background:#f2ffff16;box-shadow:0 0 12px #c5ffff33}.target span{position:absolute;right:0;top:-22px;font-size:10px;letter-spacing:2px;color:#fff}.vessel-name{position:absolute;left:0;right:0;bottom:-30px;text-align:center;color:#9ab3c2;font-size:11px}
+.controls{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:20px;margin:42px 0 24px}.actions{display:flex;gap:12px;align-items:center}button{font:inherit;border:1px solid #8fc0d1;border-radius:12px;padding:12px 22px;color:#0d2e40;background:linear-gradient(#c4f3ff,#59bfe5);box-shadow:0 5px 0 #25607a,0 10px 20px #0005,inset 0 1px #fff;cursor:pointer;font-weight:700}button:hover{filter:brightness(1.1)}button:active{transform:translateY(3px);box-shadow:0 2px 0 #25607a}button.secondary{font-size:13px;background:linear-gradient(#334956,#1e313e);color:#d3e6ee;border-color:#617583;box-shadow:0 4px 0 #0c1823}button:focus-visible,input:focus-visible{outline:2px solid #ffe5ab;outline-offset:5px}label{display:flex;align-items:center;gap:12px;font-size:12px;color:#b4cbd6}input{accent-color:#91e4f7;width:140px}.caption{color:#8da8b8;font-size:12px;line-height:1.9}footer{border-top:1px solid #ffffff12;padding-top:18px;display:flex;justify-content:space-between;gap:12px;font-size:11px;color:#728d9d}a{color:#9fc9dc}.error{position:absolute;inset:30%;color:#fff;background:#101e28;padding:16px}[hidden]{display:none!important}
+@keyframes shimmer{to{transform:scaleX(.93);opacity:.65}}.paused .water:after{animation-play-state:paused}
+@media(max-width:650px){body{padding:20px 12px}header{align-items:flex-start;flex-direction:column;gap:18px}.stage{border-width:7px;border-radius:18px;aspect-ratio:1100/680}.hint,.source,.vessel-name{display:none}.target span{font-size:8px;top:-16px}.controls{margin-top:30px;gap:24px}.actions button{padding:10px 14px}label{flex-wrap:wrap}footer{flex-direction:column}}
+@media(prefers-reduced-motion:reduce){.water:after{animation:none}}
+@media(min-width:651px){.stage{height:clamp(300px,48vh,560px);aspect-ratio:auto}}
+.goal{margin:0 0 18px;padding:14px 18px;border-left:3px solid #9be9ff;background:#a1dfff0c;color:#d9edf5;font-size:14px;line-height:1.7}.goal small{display:block;color:#a6bdc9}.actions{flex-wrap:wrap}button:disabled{opacity:.45;cursor:default;filter:none;transform:none}.adjustments{display:flex;flex-wrap:wrap;gap:20px;margin:22px 0}.adjustments label{flex-wrap:wrap}.adjustments input{width:130px}.readout{display:flex;gap:24px;flex-wrap:wrap;color:#bad1dc;font-size:14px;margin:18px 0}.readout strong{color:#f4ffff;font-size:19px}.result{padding:16px 20px;border:1px solid #5b798c;border-radius:12px;background:#162a38;margin:20px 0;line-height:1.8;min-height:84px}.result[data-state=clear]{border-color:#86e6c3;background:#153b38}.result[data-state=miss]{border-color:#b29664}#history{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}#history button{font-size:12px;padding:9px 12px}.stage[data-phase=calculating] canvas,.stage[data-phase=playing] canvas,.stage[data-phase=paused] canvas{cursor:default}.target{box-sizing:content-box;border:0;box-shadow:inset 0 1px #fff,inset 0 -1px #fff,0 0 12px #c5ffff33}.target span{letter-spacing:0}.vessel-name{font-size:10px;white-space:nowrap}.error{inset:20%;font-size:13px}.controls{margin-bottom:14px}progress{width:min(340px,100%);height:7px;accent-color:#92e5f6}#playback-progress{display:block;margin-top:12px}
+</style>
+<header><div class="brand">flowcast<small>STAGE 01 · 水の分かれ道</small></div><div><h1>水を、ちょうどよく分けよう。</h1><p>金色の点を動かす → 水を流す → 白い帯を目指す</p></div></header>
+<main>
+<p class="goal">上のコップに、届いた水の <strong id="goal-ratio">55〜65%</strong> を分けよう。<small id="goal-delivery">注いだ水の50%以上を、2つのコップへ届ける。</small></p>
+<div class="stage paused" id="stage" data-phase="loading"><canvas id="water-canvas" aria-label="水の道。2つの金色の点をドラッグして調整できます。下のスライダーでも操作できます。"></canvas><span class="label source">水の入口</span><span class="hint">金色の線が調整する道 · 丸をドラッグ</span><div class="vessel upper"><div class="water empty" id="upper-fill"></div><div class="target"><span>目標</span></div><span class="vessel-name">上のコップ</span></div><div class="vessel lower"><div class="water empty" id="lower-fill"></div><span class="vessel-name">下のコップ</span></div><p id="error" class="error" hidden></p></div>
+<div class="controls"><div class="actions"><button id="run" type="button" disabled>水を流す</button><button id="pause" class="secondary" type="button" hidden>一時停止</button><button id="finish" class="secondary" type="button" hidden>結果を見る</button><button id="reset" class="secondary" type="button" disabled>最初の形に戻す</button></div><span id="attempt-count">試行 0 回</span></div>
+<div class="adjustments"><label>分岐の高さ <input id="branch" aria-label="分岐の高さ" type="range" min="22" max="42" value="32" disabled><output id="branch-value">32</output></label><label>上側の道の出口 <input id="outlet" aria-label="上側の道の出口" type="range" min="16" max="28" value="20" disabled><output id="outlet-value">20</output></label></div>
+<div class="readout"><span>上の配分 <strong id="upper-share">—</strong></span><span>下の配分 <strong id="lower-share">—</strong></span><span>届けた水 <strong id="delivered">—</strong></span></div>
+<div class="result" id="result" role="status" aria-live="polite">課題を読み込んでいます…</div><progress id="playback-progress" max="1" value="0" aria-label="注水の再生進行" hidden></progress>
+<div id="history" aria-label="これまでの試行"></div>
+<p class="caption">金色の線の形が、水の分かれ方を変えます。コップの水位は届いた水の配分（2杯で100%）です。水の広がりと判定は水量計算に連動し、光・反射は見た目の演出です。</p>
+</main><footer><span>1ステージのゲーム試作</span><a href="./">元のゲーム・詳細な線編集へ</a></footer>
+<script type="module">
+import { Q } from '../src/config.js';
+const canvas=document.querySelector('canvas'),stage=document.querySelector('#stage');
+const gl=canvas.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:true});
+const error=document.querySelector('#error');
+function fail(message){error.hidden=false;error.textContent=message;for(const e of document.querySelectorAll('button,input'))e.disabled=true;}
+if(!gl){fail('このブラウザでは水の描画を開始できませんでした。WebGLが使えるブラウザで開いてください。');}
+else try {
+const vertex='attribute vec2 p; void main(){gl_Position=vec4(p,0.,1.);}';
+const fragment=`precision highp float;
+uniform vec2 resolution;uniform float time;uniform float depth;uniform vec2 paths[15];uniform vec2 handles[2];uniform sampler2D densityMap;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1)),f.x),f.y);}
+vec3 stone(vec2 p){float n=noise(p*.025)*.4+noise(p*.11)*.34+noise(p*.4)*.18+noise(p*1.2)*.08;float vein=pow(max(0.,1.-abs(noise(p*.036+noise(p*.008)*3.)-.5)*25.),3.);vec3 c=vec3(.105,.145,.18)+n*vec3(.19,.21,.23)+vein*vec3(.075,.085,.09);vec2 seam=abs(fract(p/126.)-.5)*126.;c*=1.-.18*smoothstep(61.5,63.,max(seam.x,seam.y));return c;}
+vec2 segmentDelta(vec2 p,vec2 a,vec2 b){vec2 ab=b-a;return p-a-ab*clamp(dot(p-a,ab)/max(dot(ab,ab),.001),0.,1.);}
+float joinedDistance(float a,float b){float h=clamp(.5+.5*(b-a)/14.,0.,1.);return mix(b,a,h)-14.*h*(1.-h);}
+// Moving cells focus light onto the stone beneath the refracting surface.
+float caustics(vec2 p){vec2 cell=floor(p),f=fract(p);float first=8.,second=8.;for(int y=-1;y<=1;y++){for(int x=-1;x<=1;x++){vec2 g=vec2(float(x),float(y));vec2 seed=vec2(hash(cell+g),hash(cell+g+37.));vec2 v=g+.5+.34*sin(seed*6.283+time*.65)-f;float d=dot(v,v);second=min(second,max(first,d));first=min(first,d);}}return pow(1.-smoothstep(.015,.20,second-first),2.);}
+float boxDistance(vec2 p,vec2 size){vec2 q=abs(p)-size;return length(max(q,0.))+min(max(q.x,q.y),0.);}
+void main(){vec2 p=vec2(gl_FragCoord.x/resolution.x,1.-gl_FragCoord.y/resolution.y)*vec2(1100.,600.);
+float d1=10000000.,d2=10000000.,d3=10000000.;vec2 v1=vec2(0.),v2=vec2(0.),v3=vec2(0.);for(int i=0;i<4;i++){vec2 a=segmentDelta(p,paths[i],paths[i+1]);vec2 b=segmentDelta(p,paths[i+5],paths[i+6]);vec2 c=segmentDelta(p,paths[i+10],paths[i+11]);if(dot(a,a)<d1){d1=dot(a,a);v1=a;}if(dot(b,b)<d2){d2=dot(b,b);v2=b;}if(dot(c,c)<d3){d3=dot(c,c);v3=c;}}
+d1=sqrt(d1);d2=sqrt(d2);d3=sqrt(d3);float guideDistance=d2;float topBlend=clamp(.5+.5*(d2-d1)/14.,0.,1.);v1=mix(v2,v1,topBlend);d1=joinedDistance(d1,d2);d2=d3;v2=v3;
+float blend=clamp(.5+.5*(d2-d1)/14.,0.,1.);float dist=joinedDistance(d1,d2);vec2 delta=mix(v2,v1,blend);
+vec2 grid=vec2((p.x-70.)*55./900.+4.,(p.y-300.)*24./260.+32.);
+float wet=texture2D(densityMap,(grid+.5)/64.).r;
+float width=26.,height=(7.+depth*15.)*wet,edge=width-dist;
+float wave1=p.x*.075-p.y*.054-time*1.8,wave2=p.x*.036+p.y*.115-time*1.2;
+float rip=sin(wave1)+sin(wave2)*.5;
+float mask=smoothstep(-.8,1.,edge+rip*.65)*smoothstep(.025,.28,wet);
+vec2 outward=delta/max(length(delta),.01);
+float sideEdge=width-joinedDistance(length(v1-vec2(0.,height)),length(v2-vec2(0.,height)));
+float shadowEdge=width-joinedDistance(length(v1-vec2(6.,height+8.)),length(v2-vec2(6.,height+8.)));
+vec3 dry=stone(p);dry*=1.-.44*smoothstep(-12.,3.,shadowEdge)*wet;
+// A transparent side face, below the top surface, gives the ribbon its thickness.
+vec3 side=stone(p+outward*5.)*vec3(.45,1.05,1.24)+vec3(.015,.10,.14);
+side+=vec3(.16,.36,.40)*exp(-abs(sideEdge)*.7)*.55;
+vec3 color=mix(dry,side,smoothstep(-1.,1.,sideEdge)*smoothstep(.025,.28,wet));
+color+=vec3(.10,.13,.15)*exp(-abs(dist-width)*.7);
+if(edge>-3.&&wet>.01){
+float deep=sqrt(max(0.,1.-pow(clamp(dist/width,0.,1.),2.)));
+vec2 slope=outward*pow(clamp(dist/width,0.,1.),6.)*.85;
+slope+=vec2(cos(wave1)*.065+cos(wave2)*.035,-cos(wave1)*.047+cos(wave2)*.105);
+vec3 normal=normalize(vec3(slope,1.));vec3 view=normalize(vec3(0.,-.45,1.));vec3 light=normalize(vec3(-.48,-.65,1.));
+vec2 refr=-normal.xy*(6.+depth*13.)+vec2(sin(wave2),cos(wave1))*.7;
+vec3 bed=stone(p+refr);
+vec2 q=(p+refr)*.048;
+q+=vec2(sin(q.y*2.4+time*.3),sin(q.x*2.1-time*.2))*.32;
+float caustic=caustics(q)*(.3+.7*noise(p*.025+time*.1));
+bed+=vec3(.24,.38,.40)*caustic*(.35+.65*deep);
+vec3 absorption=exp(-vec3(1.5,.32,.13)*(.18+depth*.6)*deep);
+vec3 water=bed*absorption+vec3(.015,.18,.25)*deep;
+float fresnel=.035+.48*pow(1.-max(0.,dot(normal,view)),3.);
+vec3 reflection=mix(vec3(.18,.35,.46),vec3(.75,.88,.94),smoothstep(-.1,.7,-normal.y));
+water=mix(water,reflection,fresnel);
+vec3 halfVector=normalize(light+view);float specular=pow(max(0.,dot(normal,halfVector)),100.);
+float broad=pow(max(0.,dot(normal,normalize(vec3(-.2,-.25,1.)))),22.);
+water+=vec3(.78,.88,.91)*specular*.85+vec3(.13,.20,.23)*broad;
+float rim=exp(-abs(edge-.7+rip*.65)*1.15);
+water+=vec3(.48,.67,.72)*rim*(.18+.65*max(0.,dot(outward,vec2(-.6,-.8))));
+color=mix(color,water,mask);
+float source=length(p-vec2(70.,300.));float rings=pow(max(0.,sin(source*.55-time*3.)),12.)*exp(-source*.065);
+color+=vec3(.42,.67,.72)*rings*mask;
+}
+// Raised slate blocks: top, side face, bevel and a soft cast shadow.
+for(int k=0;k<3;k++){float cy=k==0?45.42:k==1?300.:549.17;float sy=k==0?97.5:k==1?102.92:92.08;vec2 center=vec2(528.18,cy),size=vec2(12.,sy);
+float shadow=boxDistance(p-center-vec2(10.,12.),size);color*=1.-.48*(1.-smoothstep(-2.,12.,shadow));
+float sideWall=boxDistance(p-center-vec2(4.,6.),size);color=mix(color,stone(p)*.54,1.-smoothstep(-.5,.5,sideWall));
+vec2 topPoint=p-center+vec2(0.,8.);float top=boxDistance(topPoint,size);vec3 slab=stone(p)*1.32;slab+=vec3(.15,.17,.18)*exp(-abs(topPoint.x+11.)*1.6);slab*=1.-.25*exp(-abs(topPoint.x-11.)*1.1);color=mix(color,slab,1.-smoothstep(-.5,.5,top));}
+color=mix(color,vec3(.89,.66,.27),.75*(1.-smoothstep(1.,2.2,guideDistance)));
+// Gold handles share the same light direction as the water and the slate.
+for(int j=0;j<2;j++){vec2 h=p-handles[j];color*=1.-.5*exp(-dot(h-vec2(4.,9.),h-vec2(4.,9.))/90.);float r=length(h);float ring=1.-smoothstep(8.5,10.,r);vec3 n=normalize(vec3(h/10.,sqrt(max(.01,1.-dot(h,h)/100.))));float lit=max(0.,dot(n,normalize(vec3(-.45,-.6,1.))));vec3 gold=mix(vec3(.24,.12,.03),vec3(.96,.70,.28),lit);gold+=vec3(.7,.6,.4)*pow(lit,28.);color=mix(color,gold,ring);}
+float vignette=clamp(1.-.24*length((p-vec2(550,300))/vec2(650,420)),.6,1.);gl_FragColor=vec4(color*vignette,1.);}`;
+function shader(type,source){const s=gl.createShader(type);gl.shaderSource(s,source);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s;}
+const program=gl.createProgram();gl.attachShader(program,shader(gl.VERTEX_SHADER,vertex));gl.attachShader(program,shader(gl.FRAGMENT_SHADER,fragment));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));gl.useProgram(program);
+const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);const attribute=gl.getAttribLocation(program,'p');gl.enableVertexAttribArray(attribute);gl.vertexAttribPointer(attribute,2,gl.FLOAT,false,0,0);
+const uniforms=Object.fromEntries(['resolution','time','depth','paths[0]','handles[0]','densityMap'].map(n=>[n,gl.getUniformLocation(program,n)]));
+const texture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,texture);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+gl.uniform1i(uniforms.densityMap,0);gl.uniform1f(uniforms.depth,.45);
+const elements=Object.fromEntries(['run','pause','finish','reset','branch','outlet','branch-value','outlet-value','upper-fill','lower-fill','upper-share','lower-share','delivered','result','history','attempt-count','playback-progress'].map(id=>[id,document.getElementById(id)]));
+const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
+let challenge,lines,handles=[],phase='loading',elapsed=0,last=0,drag=null,dirty=true,worker=null,lastResult=null,playTime=0,frameIndex=-1,attemptNumber=0;
+const attempts=[];
+const FRAME_MS=180;
+const clone=value=>structuredClone(value);
+const project=([x,y])=>[70+(x/Q-4)*900/55,300+(y/Q-32)*260/24];
+const unproject=([x,y])=>[Math.round((x-70)*55/900+4),Math.round((y-300)*24/260+32)];
+const percent=value=>`${value.toFixed(1)}%`;
+const locked=()=>phase==='loading'||phase==='calculating'||phase==='playing'||phase==='paused'||phase==='error'||drag!==null;
+function message(text,state=''){elements.result.textContent=text;elements.result.dataset.state=state;}
+function controls(){
+  stage.dataset.phase=phase;stage.classList.toggle('paused',phase!=='playing'||reducedMotion.matches);
+  elements.run.disabled=locked();elements.run.textContent=phase==='calculating'?'水の流れを計算中…':phase==='finished'?'もう一度流す':'水を流す';
+  elements.reset.disabled=phase==='loading'||phase==='error'||drag!==null;
+  elements.reset.textContent=phase==='calculating'?'計算を中止':phase==='playing'||phase==='paused'?'再生をやめて調整':'最初の形に戻す';
+  for(const key of ['branch','outlet'])elements[key].disabled=locked();
+  for(const b of elements.history.querySelectorAll('button'))b.disabled=locked();
+  elements.pause.hidden=phase!=='playing'&&phase!=='paused';elements.pause.textContent=phase==='paused'?'再生を続ける':'一時停止';
+  elements.finish.hidden=phase!=='playing'&&phase!=='paused';elements['playback-progress'].hidden=phase!=='playing'&&phase!=='paused';
+  elements['attempt-count'].textContent=`試行 ${attemptNumber} 回`;
+}
+function setDensity(density){
+  const pixels=new Uint8Array(64*64);
+  if(density){const maximum=lastResult?.densityMaximum||1;for(let i=0;i<pixels.length;i++)pixels[i]=density[i]>0?Math.max(1,Math.round(255*Math.sqrt(Math.min(1,density[i]/maximum)))):0;}
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.LUMINANCE,64,64,0,gl.LUMINANCE,gl.UNSIGNED_BYTE,pixels);dirty=true;
+}
+function cups(throughput,denominator=null){
+  const upper=throughput?.upper||0,lower=throughput?.lower||0,total=denominator??(upper+lower);
+  for(const [name,amount] of [['upper',upper],['lower',lower]]){
+    const ratio=total?amount*100/total:0;elements[`${name}-fill`].style.height=`${ratio}%`;elements[`${name}-fill`].classList.toggle('empty',amount===0);
+    elements[`${name}-share`].textContent=total?percent(ratio):'—';
+  }
+}
+function updatePaths(){
+  handles=[project(lines[1][1]),project(lines[1][3])];
+  const data=[];for(const line of lines){for(let i=0;i<5;i++)data.push(...project(line[Math.min(i,line.length-1)]));}
+  gl.uniform2fv(uniforms['paths[0]'],new Float32Array(data));gl.uniform2fv(uniforms['handles[0]'],new Float32Array(handles.flat()));
+  elements.branch.value=lines[1][1][1]/Q;elements.outlet.value=lines[1][3][1]/Q;
+  for(const [key,center] of [['branch',32],['outlet',20]]){const offset=Number(elements[key].value)-center;elements[`${key}-value`].value=offset===0?'中央':`${offset>0?'下':'上'}へ${Math.abs(offset)}`;}dirty=true;
+}
+function invalidate(text='道を変えました。「水を流す」で試してみよう。'){
+  lastResult=null;frameIndex=-1;playTime=0;phase='editing';delete stage.dataset.stateHash;cups(null);setDensity(null);elements.delivered.textContent='—';elements['playback-progress'].value=0;message(text);controls();
+}
+function renderHistory(){
+  elements.history.replaceChildren();
+  for(const attempt of attempts){const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=`${attempt.number}回目：上 ${percent(attempt.ratio)} ${attempt.clear?'✓':'↩'} この形に戻す`;
+    button.onclick=()=>{if(locked())return;lines=clone(attempt.lines);updatePaths();invalidate(`${attempt.number}回目の形に戻しました。「水を流す」で再挑戦できます。`);};elements.history.append(button);}
+  controls();
+}
+function finishPlayback(record=true){
+  if(!lastResult)return;
+  phase='finished';playTime=lastResult.timeline.length*FRAME_MS;setDensity(lastResult.density);cups(lastResult.sinkThroughput);elements.delivered.textContent=`${lastResult.completionRatio}%`;
+  const {upper,lower}=lastResult.sinkThroughput,total=upper+lower,ratio=total?upper*100/total:0;
+  const delivered=lastResult.completionRatio>=challenge.constraints.completionRatioMin&&lastResult.outOfFieldRatio<=challenge.constraints.outOfFieldRatioMax;
+  const clear=delivered&&ratio>=challenge.goal.upperRatioMin&&ratio<=challenge.goal.upperRatioMax;
+  const hint=!delivered?'届く量が足りません。道をつなぎ直して、もう一度。':ratio>challenge.goal.upperRatioMax?'上に集まりすぎました。右の金色の点を少し下げて試そう。':'上に届く割合が足りません。分岐や上側の出口を調整してみよう。';
+  message(clear?`クリア！ 上に${percent(ratio)}、届けた水${lastResult.completionRatio}%。白い帯に収まりました。`:`あと少し！ 上に${percent(ratio)}、届けた水${lastResult.completionRatio}%。${hint}`,clear?'clear':'miss');
+  stage.dataset.stateHash=lastResult.stateHash;elements['playback-progress'].value=1;
+  if(record){attempts.unshift({number:attemptNumber,ratio,clear,lines:clone(lines)});if(attempts.length>5)attempts.pop();renderHistory();}else controls();
+}
+function showFrame(index){
+  const sample=lastResult.timeline[index];setDensity(sample.density);
+  // Fill towards the final allocation, so both cups rise during the recorded pour.
+  cups(sample.sinkThroughput,lastResult.sinkThroughput.upper+lastResult.sinkThroughput.lower);
+  elements.delivered.textContent=`${lastResult.totalInjected?Math.floor(sample.completed*100/lastResult.totalInjected):0}%`;
+  elements['playback-progress'].value=(index+1)/lastResult.timeline.length;
+}
+function calculationFailed(text){worker?.terminate();worker=null;invalidate(`計算できませんでした。${text} もう一度「水を流す」で試せます。`);}
+elements.run.onclick=()=>{
+  if(locked())return;invalidate();phase='calculating';elapsed=0;message('水の流れを計算しています…');controls();
+  try{
+    const active=new Worker(new URL('./water-study-worker.js',import.meta.url),{type:'module'});worker=active;
+    active.onerror=e=>{e.preventDefault();if(worker===active)calculationFailed('計算用プログラムを読み込めませんでした。');};
+    active.onmessage=({data})=>{
+      if(worker!==active)return;active.terminate();worker=null;
+      if(data.error){calculationFailed(data.error);return;}
+      lastResult=data.result;lastResult.densityMaximum=1;
+      for(const sample of lastResult.timeline)for(const amount of sample.density)lastResult.densityMaximum=Math.max(lastResult.densityMaximum,amount);
+      attemptNumber++;phase='playing';frameIndex=-1;playTime=0;message('注水中… 水がどちらに集まるか、見てみよう。');controls();
+      if(reducedMotion.matches)finishPlayback();
+    };
+    active.postMessage({...challenge,lines:clone(lines)});
+  }catch(e){calculationFailed(e.message);}
+};
+elements.pause.onclick=()=>{if(phase!=='playing'&&phase!=='paused')return;phase=phase==='playing'?'paused':'playing';message(phase==='paused'?'再生を止めています。「再生を続ける」か「結果を見る」を選べます。':'注水中… 水がどちらに集まるか、見てみよう。');controls();};
+elements.finish.onclick=()=>{if(phase==='playing'||phase==='paused')finishPlayback();};
+elements.reset.onclick=()=>{if(drag||phase==='loading'||phase==='error')return;const interrupted=phase==='calculating'||phase==='playing'||phase==='paused';worker?.terminate();worker=null;if(!interrupted){lines=clone(challenge.lines);updatePaths();}invalidate(interrupted?'中止しました。道を調整して再挑戦できます。':'まずはそのまま流してみよう。その後、金色の点で水の分かれ方を変えられます。');};
+for(const [key,index] of [['branch',1],['outlet',3]])elements[key].oninput=()=>{if(locked())return;lines[1][index][1]=Number(elements[key].value)*Q;updatePaths();invalidate();};
+function point(e){const r=canvas.getBoundingClientRect();return [(e.clientX-r.left)*1100/r.width,(e.clientY-r.top)*600/r.height];}
+canvas.onpointerdown=e=>{
+  if(locked()||!e.isPrimary||e.button!==0)return;
+  const p=point(e),r=canvas.getBoundingClientRect(),index=handles.findIndex(h=>Math.hypot((h[0]-p[0])*r.width/1100,(h[1]-p[1])*r.height/600)<24);
+  if(index<0)return;drag={index,id:e.pointerId,before:clone(lines),previousPhase:phase};canvas.setPointerCapture(e.pointerId);cups(null);setDensity(null);controls();
+};
+canvas.onpointermove=e=>{if(!drag||drag.id!==e.pointerId)return;const [x,y]=unproject(point(e));const index=drag.index===0?1:3;lines[1][index]=drag.index===0?[Math.max(12,Math.min(27,x))*Q,Math.max(22,Math.min(42,y))*Q]:[59*Q,Math.max(16,Math.min(28,y))*Q];updatePaths();};
+function end(cancel){
+  if(!drag)return;const d=drag;drag=null;const changed=JSON.stringify(d.before)!==JSON.stringify(lines);
+  if(cancel)lines=d.before;updatePaths();
+  if(cancel||!changed){if(d.previousPhase==='finished')finishPlayback(false);else invalidate();}else invalidate();
+  if(canvas.hasPointerCapture(d.id))canvas.releasePointerCapture(d.id);
+}
+canvas.onpointerup=e=>{if(drag?.id===e.pointerId)end(false);};canvas.onpointercancel=e=>{if(drag?.id===e.pointerId)end(true);};canvas.onlostpointercapture=()=>end(true);window.addEventListener('blur',()=>end(true));document.addEventListener('keydown',e=>{if(e.key==='Escape')end(true);});
+canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();worker?.terminate();worker=null;phase='error';controls();fail('描画が中断されました。ページを再読み込みしてください。');});
+window.addEventListener('pagehide',()=>{worker?.terminate();worker=null;});
+function resize(){const r=canvas.getBoundingClientRect(),scale=Math.min(devicePixelRatio||1,1.5,1200/r.width);canvas.width=Math.max(1,Math.round(r.width*scale));canvas.height=Math.max(1,Math.round(r.height*scale));gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(uniforms.resolution,canvas.width,canvas.height);dirty=true;}
+function frame(now){
+  const delta=last?Math.min(now-last,100):0;last=now;
+  if(phase==='playing'&&!document.hidden){elapsed+=delta/1000;playTime+=delta;const index=Math.floor(playTime/FRAME_MS)-1;
+    if(index>=lastResult.timeline.length)finishPlayback();else if(index>=0&&index!==frameIndex){frameIndex=index;showFrame(index);}}
+  if((phase==='playing'&&!document.hidden)||dirty){gl.uniform1f(uniforms.time,elapsed);gl.drawArrays(gl.TRIANGLES,0,6);dirty=false;}
+  requestAnimationFrame(frame);
+}
+const response=await fetch('./challenge.json');if(!response.ok)throw Error('課題の読み込みに失敗しました');challenge=await response.json();lines=clone(challenge.lines);
+document.getElementById('goal-ratio').textContent=`${challenge.goal.upperRatioMin}〜${challenge.goal.upperRatioMax}%`;
+document.getElementById('goal-delivery').textContent=`注いだ水の${challenge.constraints.completionRatioMin}%以上を、2つのコップへ届ける。`;
+const target=document.querySelector('.target');target.style.bottom=`${challenge.goal.upperRatioMin}%`;target.style.height=`${challenge.goal.upperRatioMax-challenge.goal.upperRatioMin}%`;
+updatePaths();invalidate('まずはそのまま流してみよう。その後、金色の点で水の分かれ方を変えられます。');new ResizeObserver(resize).observe(canvas);resize();requestAnimationFrame(frame);
+document.documentElement.dataset.ready='true';
+}catch(e){fail('ゲームを開始できませんでした。'+e.message);console.error(e);}
+</script>
+</html>
