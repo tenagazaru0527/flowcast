@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>flowcast — 水の重さを、次へ。</title>
+<link rel="stylesheet" href="./water-chain.css">
+<header><a class="brand" href="./water-study.html">flowcast<span>WATER MECHANISM · STUDY 02</span></a><div><h1>水の重さを、次へ。</h1><p>ためる。傾く。こぼれる。その水が、次を動かす。</p></div><span class="tag">独立した物理の試作</span></header>
+<main>
+  <div class="sequence" aria-label="連鎖の状態"><span id="phase-fill"><b>01</b> 器にたまる</span><i>→</i><span id="phase-tip"><b>02</b> 重さで傾く</span><i>→</i><span id="phase-catch"><b>03</b> 受け皿が沈む</span></div>
+  <div class="stage"><canvas id="scene" aria-label="注水口、支点付きの器、ばねの上の受け皿。状態の数値は下に表示されます。"></canvas><div class="stage-top"><span>GRAVITY / GLASS / WATER</span><span id="clock">0.0 s</span></div><div class="stage-bottom"><span id="stage-status">注水をはじめると、水の重さで器が傾きます。</span><span class="scale">20 cm ━━━</span></div></div>
+  <div class="controls"><div class="buttons"><button id="start" type="button">連鎖をはじめる <span>▶</span></button><button id="reset" type="button" class="secondary">リセット</button></div><p id="status" role="status" aria-live="polite">準備できました。まずは、そのまま流してみてください。</p></div>
+  <section class="inputs" aria-label="水の操作"><label for="flow">流量 <output id="flow-value">180 ml/s</output><input id="flow" type="range" min="0" max="300" step="10" value="180"></label><label for="source">注水口の位置 <output id="source-value">器の上</output><input id="source" type="range" min="20" max="80" step="1" value="44"></label><div class="valve"><label><input id="pouring" type="checkbox" checked> 注水する</label><button id="miss" type="button" class="text-button">注水を器の外へ</button></div></section>
+  <section class="readouts" aria-label="物理状態"><div><span>器に残る水</span><strong id="cup-volume">0<small> ml</small></strong></div><div><span>器の傾き</span><strong id="angle">0.0<small> °</small></strong></div><div><span>こぼれる流量</span><strong id="spill">0<small> ml/s</small></strong></div><div><span>受け皿の水 / 沈み</span><strong id="tray">0<small> ml / </small>0.0<small> mm</small></strong></div></section>
+  <details><summary>水量の内訳と、このモデルの近似</summary><p id="balance" class="balance"></p><p>この入口だけの簡易物理です。水 1 ml を 1 g とし、水平な水面で切った器の形から水の重心を求め、重力トルクで器を回します。右の縁を越えた水は器から減り、重力で落下して受け皿のばねを押します。配分パズルの配分値とは別の量です。</p><p>水は器の入口で瞬時に混ざり、水面は毎ステップ水平に落ち着く近似です。粘性・圧力場・飛沫同士の衝突・波による力・衝突の運動量は計算しません。器には回転の上下限、受け皿には移動の上下限があります。光、細かな波紋、屈折は描画の演出です。完全な流体・剛体の双方向連成ではありません。</p><p>流量を減らすと水がたまるまでが長くなります。注水を外した直後は、すでに落下中の水が残ります。水源は 2,400 ml、受け皿は 950 ml で、受け皿からあふれた分も排水に数えます。停止は水と器を両方止め、リセットは水量と時間をゼロにします。非表示タブでは自動停止します。</p></details>
+</main>
+<footer><span>小さな水の連鎖 · 依存ライブラリなし</span><nav><a href="./water-study.html">水の配分パズル</a><a href="./index.html">元のゲーム</a></nav></footer>
+<script type="module" src="./water-chain.js"></script>
+</html>
